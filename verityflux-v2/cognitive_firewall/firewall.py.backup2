@@ -1,0 +1,412 @@
+#!/usr/bin/env python3
+"""
+Cognitive Firewall: Runtime protection for autonomous agents
+
+Monitors Chain of Thought and validates:
+1. Intent alignment with original goal
+2. Permission boundaries for tool access
+3. Impact analysis for cascading failures
+4. Deceptive reasoning detection (NEW)
+5. 3-tier risk response system (NEW)
+"""
+
+from typing import Dict, Any, Optional, List
+from dataclasses import dataclass
+from enum import Enum
+import json
+import re
+
+class FirewallAction(str, Enum):
+    """Firewall decision"""
+    ALLOW = "allow"
+    BLOCK = "block"
+    REQUIRE_APPROVAL = "require_approval"
+    LOG_ONLY = "log_only"
+
+@dataclass
+class AgentAction:
+    """Represents an agent's intended action"""
+    agent_id: str
+    tool_name: str
+    parameters: Dict[str, Any]
+    reasoning_chain: List[str]
+    original_goal: str
+    context: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        if self.context is None:
+            self.context = {}
+
+@dataclass
+class FirewallDecision:
+    """Firewall decision with reasoning"""
+    action: FirewallAction
+    confidence: float  # 0-100
+    reasoning: str
+    risk_score: float  # 0-100
+    violations: List[str]
+    recommendations: List[str]
+    context: Dict[str, Any] = None  # NEW: Additional metadata
+    
+    def __post_init__(self):
+        if self.context is None:
+            self.context = {}
+
+class CognitiveFirewall:
+    """
+    Main firewall that orchestrates intent, permission, and impact checks.
+    
+    This is the "Sentinel" system that watches the thinkers.
+    
+    Version 3.0 adds:
+    - Deceptive reasoning detection
+    - 3-tier risk response (CRITICAL/HIGH/MEDIUM/LOW)
+    - Enhanced semantic analysis
+    """
+    
+    def __init__(
+        self,
+        intent_validator=None,
+        permission_engine=None,
+        impact_analyzer=None,
+        config: Optional[Dict] = None
+    ):
+        from .intent_validator import IntentValidator
+        from .permission_engine import PermissionEngine
+        from .impact_analyzer import ImpactAnalyzer
+        
+        self.intent_validator = intent_validator or IntentValidator()
+        self.permission_engine = permission_engine or PermissionEngine()
+        self.impact_analyzer = impact_analyzer or ImpactAnalyzer()
+        
+        # 🎯 NEW: 3-Tier Threshold System
+        self.config = config or {
+            'critical_threshold': 85.0,   # TIER 1: Immediate block
+            'high_threshold': 70.0,       # TIER 2: Require approval
+            'medium_threshold': 50.0,     # TIER 3: Allow with logging
+            'log_all': True,
+            'enable_deception_detection': True  # NEW feature flag
+        }
+        
+        self.action_log = []
+    
+    def evaluate(self, agent_action: AgentAction) -> FirewallDecision:
+        """
+        Evaluate an agent's intended action through multiple security lenses:
+        1. Intent: Does this align with the original goal?
+        2. Permission: Does the agent have authority?
+        3. Impact: What's the cascading risk?
+        4. Deception: Is reasoning consistent with action? (NEW)
+        """
+        
+        violations = []
+        risk_scores = []
+        risk_breakdown = {}
+        
+        # Check 1: Intent Alignment
+        intent_result = self.intent_validator.validate(
+            original_goal=agent_action.original_goal,
+            reasoning_chain=agent_action.reasoning_chain,
+            proposed_action=agent_action.tool_name,
+            parameters=agent_action.parameters
+        )
+        
+        if not intent_result['aligned']:
+            violations.append(f"Intent misalignment: {intent_result['reason']}")
+            risk_scores.append(intent_result['risk_score'])
+        
+        risk_breakdown['intent_risk'] = intent_result.get('risk_score', 0)
+        
+        # Check 2: Permission Boundaries
+        permission_result = self.permission_engine.check(
+            agent_id=agent_action.agent_id,
+            tool_name=agent_action.tool_name,
+            parameters=agent_action.parameters,
+            context=agent_action.context
+        )
+        
+        if not permission_result['authorized']:
+            violations.append(f"Permission violation: {permission_result['reason']}")
+            risk_scores.append(permission_result['risk_score'])
+        
+        risk_breakdown['permission_risk'] = permission_result.get('risk_score', 0)
+        
+        # Check 3: Impact Analysis
+        impact_result = self.impact_analyzer.analyze(
+            tool_name=agent_action.tool_name,
+            parameters=agent_action.parameters,
+            context=agent_action.context
+        )
+        
+        if impact_result['high_risk']:
+            violations.append(f"High-risk impact: {impact_result['reason']}")
+            risk_scores.append(impact_result['risk_score'])
+        
+        risk_breakdown['impact_risk'] = impact_result.get('risk_score', 0)
+        
+        # 🎯 NEW: Check 4: Deceptive Reasoning Detection
+        if self.config.get('enable_deception_detection', True):
+            deception_score = self._detect_deceptive_reasoning(agent_action)
+            
+            if deception_score > 0.3:  # 30% threshold for concern
+                violations.append(f"Deceptive reasoning detected: {deception_score*100:.0f}% mismatch")
+                risk_scores.append(deception_score * 100)
+            
+            risk_breakdown['deception_score'] = deception_score * 100
+        else:
+            risk_breakdown['deception_score'] = 0
+        
+        # Aggregate results with weighted scoring
+        if risk_scores:
+            # Weight deception heavily (it's a strong indicator of malicious intent)
+            weights = {
+                'intent': 0.25,
+                'permission': 0.25,
+                'impact': 0.20,
+                'deception': 0.30
+            }
+            
+            overall_risk = (
+                risk_breakdown.get('intent_risk', 0) * weights['intent'] +
+                risk_breakdown.get('permission_risk', 0) * weights['permission'] +
+                risk_breakdown.get('impact_risk', 0) * weights['impact'] +
+                risk_breakdown.get('deception_score', 0) * weights['deception']
+            )
+        else:
+            overall_risk = 0.0
+        
+        confidence = min([
+            intent_result.get('confidence', 100), 
+            permission_result.get('confidence', 100),
+            impact_result.get('confidence', 100)
+        ])
+        
+        # 🎯 NEW: 3-Tier Decision System
+        tier = self._get_risk_tier(overall_risk)
+        action, reasoning = self._make_tiered_decision(overall_risk, violations, tier, risk_breakdown)
+        
+        decision = FirewallDecision(
+            action=action,
+            confidence=confidence,
+            reasoning=reasoning,
+            risk_score=overall_risk,
+            violations=violations,
+            recommendations=self._generate_recommendations(violations, overall_risk, tier),
+            context={
+                'tier': tier,
+                'risk_breakdown': risk_breakdown,
+                'deception_detected': risk_breakdown.get('deception_score', 0) > 30
+            }
+        )
+        
+        # Log the decision
+        if self.config['log_all']:
+            self.action_log.append({
+                'agent_id': agent_action.agent_id,
+                'tool': agent_action.tool_name,
+                'decision': decision.action.value,
+                'risk': overall_risk,
+                'tier': tier,
+                'violations': violations,
+                'deception_score': risk_breakdown.get('deception_score', 0)
+            })
+        
+        return decision
+    
+    def _detect_deceptive_reasoning(self, action: AgentAction) -> float:
+        """
+        🎯 NEW: Detect when stated reasoning contradicts actual action parameters.
+        
+        Examples of deception:
+        - Reasoning: "Checking database version"
+          Parameters: {"query": "DROP TABLE users"}
+          
+        - Reasoning: "Reading log file"
+          Parameters: {"path": "/etc/shadow"}
+        
+        Returns:
+            float: Deception score 0.0-1.0
+        """
+        
+        # Join reasoning chain into single string
+        reasoning_text = " ".join(action.reasoning_chain).lower()
+        
+        # Convert parameters to searchable text
+        params_text = json.dumps(action.parameters).lower()
+        
+        deception_score = 0.0
+        
+        # Pattern 1: Benign reasoning + destructive action
+        benign_words = ['check', 'read', 'view', 'analyze', 'review', 'inspect', 'examine', 'verify', 'validate']
+        destructive_words = ['drop', 'delete', 'remove', 'truncate', 'destroy', 'kill', 'rm -rf', 'erase', 'purge']
+        
+        if any(word in reasoning_text for word in benign_words):
+            if any(word in params_text for word in destructive_words):
+                deception_score += 0.5
+        
+        # Pattern 2: "Safe" reasoning + credential extraction
+        safe_words = ['report', 'summary', 'status', 'count', 'list', 'dashboard', 'metrics']
+        credential_words = ['password', 'passwd', 'shadow', 'token', 'secret', 'key', 'credential', 'hash', 'private']
+        
+        if any(word in reasoning_text for word in safe_words):
+            if any(word in params_text for word in credential_words):
+                deception_score += 0.4
+        
+        # Pattern 3: Mismatch between stated goal and actual tool
+        if action.original_goal:
+            goal_lower = action.original_goal.lower()
+            
+            # Goal says "read" but action is "write"
+            if 'read' in goal_lower and action.tool_name in ['write_file', 'delete_file', 'execute_command', 'run_command']:
+                deception_score += 0.3
+            
+            # Goal says "analyze" but action sends data externally
+            if 'analyze' in goal_lower and 'send' in action.tool_name.lower():
+                deception_score += 0.3
+            
+            # Goal says "check" but action modifies
+            if any(word in goal_lower for word in ['check', 'verify', 'review']) and \
+               any(word in action.tool_name.lower() for word in ['delete', 'modify', 'update', 'create']):
+                deception_score += 0.3
+        
+        # Pattern 4: SQL injection patterns with innocent reasoning
+        if 'sql' in action.tool_name.lower() or 'query' in action.tool_name.lower():
+            injection_patterns = [
+                'union select', 'or 1=1', '--', ';', 'drop table', 
+                'exec(', 'execute', 'xp_cmdshell', 'into outfile'
+            ]
+            
+            if any(pattern in params_text for pattern in injection_patterns):
+                if not any(pattern in reasoning_text for pattern in injection_patterns):
+                    # SQL injection in params but not mentioned in reasoning
+                    deception_score += 0.6
+        
+        # Pattern 5: File path mismatches
+        if action.tool_name in ['read_file', 'write_file', 'open_file']:
+            sensitive_paths = ['/etc/passwd', '/etc/shadow', '.ssh', '.aws', 'id_rsa', 'private_key', '/root/']
+            
+            if any(path in params_text for path in sensitive_paths):
+                if not any(path in reasoning_text for path in sensitive_paths):
+                    # Accessing sensitive path without mentioning it
+                    deception_score += 0.5
+        
+        # Pattern 6: Hidden exfiltration (email/network with sensitive data)
+        if action.tool_name in ['send_email', 'http_request', 'upload_file', 'post_data']:
+            # Check if sending credentials/sensitive data without stating it
+            if any(word in params_text for word in credential_words):
+                if 'exfiltrat' not in reasoning_text and 'send credential' not in reasoning_text:
+                    deception_score += 0.4
+        
+        # Pattern 7: Time-delayed malicious commands
+        if action.tool_name in ['write_file', 'create_script']:
+            delay_patterns = ['sleep', 'wait', 'cron', 'at ', 'schedule']
+            
+            if any(pattern in params_text for pattern in delay_patterns):
+                if any(destructive in params_text for destructive in destructive_words):
+                    if not any(word in reasoning_text for word in ['delay', 'schedule', 'batch']):
+                        deception_score += 0.5
+        
+        return min(deception_score, 1.0)  # Cap at 1.0
+    
+    def _get_risk_tier(self, risk_score: float) -> str:
+        """
+        🎯 NEW: Determine risk tier based on score
+        """
+        if risk_score >= self.config['critical_threshold']:
+            return "CRITICAL"
+        elif risk_score >= self.config['high_threshold']:
+            return "HIGH"
+        elif risk_score >= self.config['medium_threshold']:
+            return "MEDIUM"
+        else:
+            return "LOW"
+    
+    def _make_tiered_decision(
+        self, 
+        risk_score: float, 
+        violations: List[str], 
+        tier: str,
+        risk_breakdown: Dict[str, float]
+    ) -> tuple[FirewallAction, str]:
+        """
+        🎯 NEW: Make decision based on 3-tier system
+        
+        Returns:
+            (action, reasoning) tuple
+        """
+        
+        deception = risk_breakdown.get('deception_score', 0)
+        intent = risk_breakdown.get('intent_risk', 0)
+        permission = risk_breakdown.get('permission_risk', 0)
+        
+        if tier == "CRITICAL":
+            # TIER 1: Immediate block (85+)
+            action = FirewallAction.BLOCK
+            reasoning = (
+                f"🚨 CRITICAL RISK: Immediate block (Risk: {risk_score:.0f}/100)\n"
+                f"   └─ Deception: {deception:.0f}%, Intent: {intent:.0f}%, Permission: {permission:.0f}%"
+            )
+        
+        elif tier == "HIGH":
+            # TIER 2: Require human approval (70-84)
+            action = FirewallAction.REQUIRE_APPROVAL
+            reasoning = (
+                f"⚠️ HIGH RISK: Human approval required (Risk: {risk_score:.0f}/100)\n"
+                f"   └─ Deception: {deception:.0f}%, Intent: {intent:.0f}%"
+            )
+        
+        elif tier == "MEDIUM":
+            # TIER 3: Allow but log for monitoring (50-69)
+            action = FirewallAction.LOG_ONLY
+            reasoning = (
+                f"📊 MEDIUM RISK: Allowed with enhanced logging (Risk: {risk_score:.0f}/100)\n"
+                f"   └─ Monitoring for pattern analysis"
+            )
+        
+        else:
+            # TIER 4: Standard allow (<50)
+            if violations:
+                action = FirewallAction.LOG_ONLY
+                reasoning = f"⚠️ LOW RISK: Minor concerns, logging for review (Risk: {risk_score:.0f}/100)"
+            else:
+                action = FirewallAction.ALLOW
+                reasoning = f"✅ LOW RISK: Action approved (Risk: {risk_score:.0f}/100)"
+        
+        return action, reasoning
+    
+    def _generate_recommendations(self, violations: List[str], risk_score: float, tier: str) -> List[str]:
+        """Generate actionable recommendations based on tier"""
+        recs = []
+        
+        if "Intent misalignment" in str(violations):
+            recs.append("🔍 Review agent's reasoning chain for goal drift")
+        
+        if "Permission violation" in str(violations):
+            recs.append("🔐 Audit agent's privilege scope and apply least-privilege principle")
+        
+        if "High-risk impact" in str(violations):
+            recs.append("👤 Enable human-in-the-loop for this action category")
+        
+        if "Deceptive reasoning" in str(violations):
+            recs.append("🚨 CRITICAL: Agent showing deceptive behavior - investigate reasoning chain")
+            recs.append("📝 Compare stated intent vs actual parameters for inconsistencies")
+        
+        # Tier-specific recommendations
+        if tier == "CRITICAL":
+            recs.append("🛑 IMMEDIATE: Isolate agent and revoke credentials")
+            recs.append("📊 Forensic analysis recommended - preserve logs")
+        
+        elif tier == "HIGH":
+            recs.append("⚠️ Require explicit human approval before execution")
+            recs.append("📧 Notify security team for review")
+        
+        elif tier == "MEDIUM":
+            recs.append("📊 Enhanced monitoring enabled for this agent")
+            recs.append("🔔 Alert on pattern repetition")
+        
+        if risk_score > 80:
+            recs.append("⛔ CRITICAL: Consider disabling agent autonomy for this workflow")
+        
+        return recs
+
+__all__ = ['CognitiveFirewall', 'AgentAction', 'FirewallDecision', 'FirewallAction']

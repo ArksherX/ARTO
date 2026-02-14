@@ -1,0 +1,23 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl postgresql-client && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+RUN mkdir -p data logs && \
+    useradd -m -u 1000 vestigia && \
+    chown -R vestigia:vestigia /app
+
+USER vestigia
+
+HEALTHCHECK --interval=60s --timeout=10s --retries=3 \
+    CMD pgrep -f enrichment_service || exit 1
+
+CMD ["python", "-u", "-c", "from core.enrichment_service import EnrichmentService; svc = EnrichmentService(None); svc.start()"]

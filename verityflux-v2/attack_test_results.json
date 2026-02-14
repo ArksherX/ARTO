@@ -1,0 +1,13 @@
+{
+  "timestamp": 1766326906.549059,
+  "prompt_injection": {
+    "detected": 0,
+    "total": 10,
+    "rate": 0.0
+  },
+  "goal_hijacking": {
+    "blocked": 3,
+    "total": 3,
+    "rate": 100.0
+  }
+}

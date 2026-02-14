@@ -1,0 +1,170 @@
+groups:
+  - name: vestigia_critical
+    rules:
+      - alert: VestigiaAPIDown
+        expr: up{job="vestigia-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Vestigia API is down"
+          description: "The Vestigia API server has been unreachable for more than 1 minute."
+
+      - alert: VestigiaIntegrityFailure
+        expr: vestigia_integrity_valid == 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ledger integrity failure"
+          description: "Hash chain validation has failed — possible tampering detected."
+
+      - alert: VestigiaHighCriticalEvents
+        expr: rate(vestigia_events_total{severity="CRITICAL"}[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High rate of CRITICAL events"
+          description: "More than 0.5 critical events/sec over 5 minutes."
+
+      - alert: VestigiaUnauthorizedAccess
+        expr: increase(vestigia_auth_failures_total[5m]) > 10
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Possible brute-force attack"
+          description: "{{ $value }} unauthorized access attempts in the last 5 minutes."
+
+  - name: vestigia_warning
+    rules:
+      - alert: VestigiaHighErrorRate
+        expr: rate(vestigia_http_errors_total[5m]) / rate(vestigia_http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API error rate > 5%"
+
+      - alert: VestigiaHighLatency
+        expr: histogram_quantile(0.99, rate(vestigia_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p99 latency > 2s"
+
+      - alert: VestigiaHighEventRate
+        expr: rate(vestigia_events_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Event ingestion rate > 100/sec"
+
+      - alert: VestigiaSIEMForwardingFailure
+        expr: vestigia_siem_forward_failures_total > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SIEM forwarding failures detected"
+
+      - alert: VestigiaDLQGrowing
+        expr: vestigia_dlq_size > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dead letter queue has {{ $value }} messages"
+
+      - alert: VestigiaBudgetExceeded
+        expr: vestigia_budget_percentage > 80
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Cost budget {{ $value }}% consumed"
+
+      - alert: VestigiaWatchtowerAlert
+        expr: vestigia_watchtower_tampering_count > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Watchtower detected {{ $value }} tampering incidents"
+
+      - alert: VestigiaBackupFailure
+        expr: time() - vestigia_last_backup_timestamp > 86400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No backup in the last 24 hours"
+
+  - name: vestigia_infrastructure
+    rules:
+      - alert: VestigiaDBConnectionFailure
+        expr: pg_up{job="vestigia-db"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PostgreSQL connection failure"
+
+      - alert: VestigiaDiskSpaceWarning
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.15
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space below 15%"
+
+      - alert: VestigiaHighMemoryUsage
+        expr: process_resident_memory_bytes{job="vestigia-api"} > 1073741824
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API memory usage > 1GB"
+
+      - alert: VestigiaSlowQueries
+        expr: rate(vestigia_query_duration_seconds_sum[5m]) / rate(vestigia_query_duration_seconds_count[5m]) > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Average query time > 1s"
+
+      - alert: VestigiaQueueBacklog
+        expr: vestigia_siem_queue_size > 1000
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "SIEM queue backlog > 1000"
+
+      - alert: VestigiaServiceRestart
+        expr: changes(process_start_time_seconds{job=~"vestigia.*"}[15m]) > 2
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Service restarted {{ $value }} times in 15m"
+
+      - alert: VestigiaCertExpiringSoon
+        expr: probe_ssl_earliest_cert_expiry - time() < 604800
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "TLS certificate expires in less than 7 days"
+
+      - alert: VestigiaReplicationLag
+        expr: vestigia_replication_lag_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Database replication lag > 5 minutes"

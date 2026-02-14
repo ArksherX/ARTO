@@ -1,0 +1,111 @@
+# VerityFlux Enterprise - Docker Compose
+# Complete air-gapped deployment stack v3.5.0
+
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: verityflux/enterprise:3.5.0
+    container_name: verityflux-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=production
+      - DEPLOYMENT_MODE=air_gapped
+      - AIR_GAPPED_MODE=true
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_WORKERS=4
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
+      - DATABASE_URL=postgresql://verityflux:${DB_PASSWORD:-verityflux}@postgres:5432/verityflux
+      - REDIS_URL=redis://redis:6379/0
+      - HITL_DEFAULT_TIMEOUT_MINUTES=30
+      - HITL_AUTO_APPROVE_BELOW_RISK=30
+      - HITL_AUTO_DENY_ABOVE_RISK=95
+      - LICENSE_MODE=air_gapped
+      - LICENSE_KEY=${LICENSE_KEY:-}
+    volumes:
+      - verityflux-data:/app/data
+      - verityflux-logs:/app/logs
+      - ./updates:/app/data/updates:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - verityflux-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: verityflux-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=verityflux
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-verityflux}
+      - POSTGRES_DB=verityflux
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - verityflux-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U verityflux"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: verityflux-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb
+    volumes:
+      - redis-data:/data
+    networks:
+      - verityflux-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    image: verityflux/enterprise:3.5.0
+    container_name: verityflux-worker
+    restart: unless-stopped
+    command: ["python", "-c", "import time; print('Worker ready'); time.sleep(86400)"]
+    environment:
+      - ENVIRONMENT=production
+      - DEPLOYMENT_MODE=air_gapped
+      - DATABASE_URL=postgresql://verityflux:${DB_PASSWORD:-verityflux}@postgres:5432/verityflux
+      - REDIS_URL=redis://redis:6379/0
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-in-production}
+    volumes:
+      - verityflux-data:/app/data
+    depends_on:
+      - api
+    networks:
+      - verityflux-network
+
+networks:
+  verityflux-network:
+    driver: bridge
+
+volumes:
+  verityflux-data:
+  verityflux-logs:
+  postgres-data:
+  redis-data:

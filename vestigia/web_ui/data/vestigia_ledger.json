@@ -1,0 +1,19 @@
+[
+    {
+        "timestamp": "2026-01-06T08:34:39.486845+00:00",
+        "actor_id": "SYSTEM",
+        "action_type": "LEDGER_INITIALIZED",
+        "status": "SUCCESS",
+        "evidence": {
+            "summary": "Genesis block - Ledger initialized",
+            "metadata": {
+                "version": "2.0",
+                "merkle_enabled": true,
+                "external_anchor": true
+            }
+        },
+        "integrity_hash": "ROOT",
+        "event_id": "genesis_000",
+        "previous_hash": "GENESIS"
+    }
+]

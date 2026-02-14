@@ -1,0 +1,317 @@
+# ============================================================================
+# VerityFlux Enterprise - Helm Chart Values
+# Customize deployment configuration
+# ============================================================================
+
+# Global configuration
+global:
+  environment: production
+  imageRegistry: ""
+  imagePullSecrets: []
+
+# -----------------------------------------------------------------------------
+# API Configuration
+# -----------------------------------------------------------------------------
+api:
+  enabled: true
+  replicaCount: 3
+  
+  image:
+    repository: verityflux/enterprise
+    tag: "3.5.0"
+    pullPolicy: Always
+  
+  service:
+    type: ClusterIP
+    port: 8000
+  
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  
+  # Pod configuration
+  podAnnotations: {}
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  
+  # Probes
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 30
+  
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+# -----------------------------------------------------------------------------
+# UI Configuration
+# -----------------------------------------------------------------------------
+ui:
+  enabled: true
+  replicaCount: 2
+  
+  image:
+    repository: verityflux/enterprise
+    tag: "3.5.0"
+    pullPolicy: Always
+  
+  service:
+    type: ClusterIP
+    port: 8501
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+
+# -----------------------------------------------------------------------------
+# Worker Configuration (Celery)
+# -----------------------------------------------------------------------------
+worker:
+  enabled: true
+  replicaCount: 2
+  
+  image:
+    repository: verityflux/enterprise
+    tag: "3.5.0"
+    pullPolicy: Always
+  
+  concurrency: 4
+  
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+
+# -----------------------------------------------------------------------------
+# Scheduler Configuration (Celery Beat)
+# -----------------------------------------------------------------------------
+scheduler:
+  enabled: true
+  replicaCount: 1  # Must be 1
+  
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# -----------------------------------------------------------------------------
+# PostgreSQL Configuration
+# -----------------------------------------------------------------------------
+postgresql:
+  enabled: true
+  
+  # Use external database instead
+  external:
+    enabled: false
+    host: ""
+    port: 5432
+    database: verityflux
+    username: verityflux
+    existingSecret: ""
+    existingSecretPasswordKey: password
+  
+  # Internal PostgreSQL (TimescaleDB)
+  image:
+    repository: timescale/timescaledb
+    tag: latest-pg15
+  
+  auth:
+    database: verityflux
+    username: verityflux
+    password: ""  # Use existingSecret in production
+    existingSecret: ""
+  
+  primary:
+    persistence:
+      enabled: true
+      size: 50Gi
+      storageClass: ""  # Use default storage class
+    
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+# -----------------------------------------------------------------------------
+# Redis Configuration
+# -----------------------------------------------------------------------------
+redis:
+  enabled: true
+  
+  # Use external Redis instead
+  external:
+    enabled: false
+    host: ""
+    port: 6379
+    password: ""
+  
+  # Internal Redis
+  architecture: standalone
+  
+  auth:
+    enabled: false
+  
+  master:
+    persistence:
+      enabled: false
+    
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# -----------------------------------------------------------------------------
+# Ingress Configuration
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  
+  hosts:
+    - host: verityflux.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: ui
+    - host: api.verityflux.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: api
+  
+  tls:
+    - secretName: verityflux-tls
+      hosts:
+        - verityflux.example.com
+        - api.verityflux.example.com
+
+# -----------------------------------------------------------------------------
+# Monitoring Configuration
+# -----------------------------------------------------------------------------
+monitoring:
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+  
+  grafana:
+    enabled: false  # Use external Grafana
+    dashboards:
+      enabled: true
+
+# -----------------------------------------------------------------------------
+# Security Configuration
+# -----------------------------------------------------------------------------
+security:
+  podSecurityPolicy:
+    enabled: false
+  
+  networkPolicy:
+    enabled: true
+    allowExternal: true
+  
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
+# -----------------------------------------------------------------------------
+# Environment Variables
+# -----------------------------------------------------------------------------
+env:
+  # Non-sensitive environment variables
+  ENVIRONMENT: production
+  DEBUG: "false"
+  LOG_LEVEL: INFO
+
+# Secrets (use existingSecret or create new)
+secrets:
+  create: true
+  existingSecret: ""
+  
+  # Values (only used if create=true and existingSecret is empty)
+  # In production, use external secret management
+  values:
+    SECRET_KEY: "change-me-in-production"
+    JWT_SECRET: "change-me-in-production"
+    # STRIPE_API_KEY: ""
+    # SLACK_BOT_TOKEN: ""
+    # OPENAI_API_KEY: ""
+    # ANTHROPIC_API_KEY: ""
+
+# -----------------------------------------------------------------------------
+# Service Account
+# -----------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: verityflux-sa
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# Node Selection
+# -----------------------------------------------------------------------------
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: verityflux
+          topologyKey: kubernetes.io/hostname

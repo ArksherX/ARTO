@@ -1,0 +1,58 @@
+{
+  "name": "@verityflux/sdk",
+  "version": "1.0.0",
+  "description": "VerityFlux Enterprise SDK for AI Agent Security",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup index.ts --format cjs,esm --dts",
+    "dev": "tsup index.ts --format cjs,esm --dts --watch",
+    "lint": "eslint . --ext .ts",
+    "test": "jest",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "verityflux",
+    "ai",
+    "security",
+    "llm",
+    "agent",
+    "langchain",
+    "autogen",
+    "crewai",
+    "hitl",
+    "human-in-the-loop"
+  ],
+  "author": "VerityFlux Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/verityflux/sdk-js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "tsup": "^8.0.0",
+    "eslint": "^8.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "jest": "^29.0.0",
+    "@types/jest": "^29.0.0",
+    "ts-jest": "^29.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xmlsec1 libxml2-dev libxmlsec1-dev
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run tests
+        run: |
+          pytest tests -v --junitxml=test-results/junit.xml
+      - name: Publish test summary
+        if: always()
+        run: |
+          echo "## Test Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          python - <<'PY'
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+path = Path("test-results/junit.xml")
+if not path.exists():
+    print("No test report found.")
+    raise SystemExit(0)
+
+root = ET.parse(path).getroot()
+tests = int(root.attrib.get("tests", 0))
+failures = int(root.attrib.get("failures", 0))
+errors = int(root.attrib.get("errors", 0))
+skipped = int(root.attrib.get("skipped", 0))
+time = root.attrib.get("time", "0")
+
+print(f"- Total: {tests}")
+print(f"- Failures: {failures}")
+print(f"- Errors: {errors}")
+print(f"- Skipped: {skipped}")
+print(f"- Time: {time}s")
+PY >> $GITHUB_STEP_SUMMARY
+          python - <<'PY'
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+path = Path("test-results/junit.xml")
+path.parent.mkdir(exist_ok=True)
+if not path.exists():
+    Path("test-results/summary.md").write_text("No test report found.\\n")
+    raise SystemExit(0)
+
+root = ET.parse(path).getroot()
+tests = int(root.attrib.get("tests", 0))
+failures = int(root.attrib.get("failures", 0))
+errors = int(root.attrib.get("errors", 0))
+skipped = int(root.attrib.get("skipped", 0))
+time = root.attrib.get("time", "0")
+
+summary = f\"\"\"# Test Summary\\n\\n\"\"\"\nsummary += f\"- Total: {tests}\\n\"\nsummary += f\"- Failures: {failures}\\n\"\nsummary += f\"- Errors: {errors}\\n\"\nsummary += f\"- Skipped: {skipped}\\n\"\nsummary += f\"- Time: {time}s\\n\"\nPath(\"test-results/summary.md\").write_text(summary)\nPY
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            test-results/junit.xml
+            test-results/summary.md

@@ -1,0 +1,69 @@
+name: VerityFlux Security Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight
+
+jobs:
+  security_scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        pip install -r requirements.txt
+    
+    - name: Run VerityFlux Security Scan
+      env:
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: |
+        python3 << 'SCAN'
+        import sys
+        sys.path.insert(0, '.')
+        from core.scanner import VerityFluxScanner
+        from core.types import ScanConfig
+        
+        scanner = VerityFluxScanner(
+            application_name="CI/CD Security Scan",
+            config=ScanConfig(scan_llm_threats=True, scan_agentic_threats=True)
+        )
+        
+        target = {
+            'provider': 'mock',
+            'model': 'mock',
+            'is_agent': True
+        }
+        
+        report = scanner.scan_all(target)
+        
+        print(f"Risk Score: {report.overall_risk_score:.1f}/100")
+        
+        # Fail if critical vulnerabilities found
+        if report.critical_threats > 0:
+            print(f"CRITICAL: {report.critical_threats} critical threats found!")
+            sys.exit(1)
+        
+        if report.overall_risk_score > 70:
+            print("FAIL: Risk score too high for deployment")
+            sys.exit(1)
+        
+        print("PASS: Security scan successful")
+        SCAN
+    
+    - name: Upload Scan Report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: verityflux-scan-report
+        path: flight_logs/

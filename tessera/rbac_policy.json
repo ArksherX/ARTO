@@ -1,0 +1,10 @@
+{
+  "GET": {
+    "/metrics": ["ops", "security", "admin"]
+  },
+  "POST": {
+    "/tokens/revoke": ["security", "admin"],
+    "/access/validate": ["security", "admin"],
+    "/agents/register": ["admin"]
+  }
+}

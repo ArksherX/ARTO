@@ -1,0 +1,51 @@
+name: Suite CI
+
+on:
+  push:
+    paths:
+      - "**.py"
+      - "docker-compose.suite.yml"
+      - "ops/**"
+      - ".github/workflows/suite-ci.yml"
+  pull_request:
+
+jobs:
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start suite (API-only)
+        run: |
+          docker compose -f docker-compose.suite.yml up -d
+
+      - name: Wait for services
+        run: |
+          for i in {1..60}; do
+            if curl -sf http://localhost:8001/health >/dev/null \
+              && curl -sf http://localhost:8002/health >/dev/null \
+              && curl -sf http://localhost:8003/docs >/dev/null; then
+              echo "Services ready"; exit 0; 
+            fi
+            sleep 2
+          done
+          echo "Services not ready"; docker compose -f docker-compose.suite.yml ps; exit 1
+
+      - name: Run integration smoke test
+        env:
+          VESTIGIA_API_KEY: dev-vestigia-key
+        run: |
+          python integration_smoke_test.py
+
+      - name: Run reliability check
+        env:
+          SAMPLES: "3"
+          P95_THRESHOLD_MS: "1500"
+        run: |
+          python reliability_check.py
+
+      - name: Shutdown
+        if: always()
+        run: |
+          docker compose -f docker-compose.suite.yml down -v

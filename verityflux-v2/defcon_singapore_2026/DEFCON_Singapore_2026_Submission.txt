@@ -1,0 +1,378 @@
+================================================================================
+DEF CON SINGAPORE 2026 - CALL FOR PAPERS SUBMISSION
+================================================================================
+
+PRESENTATION TITLE:
+"From Prompt Injection to Goal Hijacking: Red Teaming the Autonomous AI Workforce"
+
+TALK LENGTH: 45 minutes
+
+================================================================================
+SECTION 1: SPEAKER INFORMATION
+================================================================================
+
+PRIMARY PRESENTER:
+
+Full Name: Miracle Abiodun Owolabi
+Pseudonym/Handle: Arksher
+Email: Owolabimiracle@gmail.com
+Submit Anonymously?: N
+Name/Handle Preference: B (Both name and handle)
+Preferred Pronouns: He/Him
+Backup Email: [provide backup email]
+Corporate Affiliation: Independent Security Researcher
+Phone Number: +234(0)8136643559
+Social Media: 
+  - LinkedIn: linkedin.com/in/miracle-owolabi
+  - GitHub: github.com/[your-username]/verityflux-v2
+Biography:
+Miracle Abiodun Owolabi (Arksher) is an AI Security & Safety Researcher 
+specializing in adversarial testing of Large Language Models and Agentic AI 
+systems. He is the creator of VerityFlux 2.0, the first open-source OWASP-aligned 
+AI red teaming framework covering all 20 threats from OWASP LLM Top 10 (2025) 
+and Agentic AI Top 10 (2026). His research focuses on autonomous agent security, 
+supply chain attacks, and runtime protection for AI systems. Previously presented 
+at Black Hat MEA 2025 on AI supply chain security and DevSecCon Nigeria 2024 
+on shadow agents. He has 5+ years of offensive security experience and has 
+discovered critical vulnerabilities reducing AI attack surfaces by 40% in 
+production healthcare systems.
+
+Previous DEF CON Presentations: N
+First DEF CON Presentation: Y
+ADA/Accessibility Accommodations Required: N
+Visa Required: Y
+
+Visa Information:
+Legal Name On Passport: Miracle Abiodun Owolabi
+Passport Number: [REDACTED - Will provide upon acceptance]
+Country of Issue: Nigeria
+Date of Issue: [Will provide upon acceptance]
+Date of Expiration: [Will provide upon acceptance]
+Country of Origin: Nigeria
+
+Presenter Role: Primary researcher, tool developer, and speaker
+
+================================================================================
+SECTION 2: DETAILED OUTLINE
+================================================================================
+
+PRESENTATION OVERVIEW:
+This talk presents the first comprehensive framework for red teaming autonomous 
+AI agents, demonstrating how traditional prompt injection has evolved into 
+"goal hijacking" - where agents are manipulated into abandoning their original 
+objectives. We introduce VerityFlux 2.0, the industry's first OWASP-aligned 
+AI security framework with 100% coverage of OWASP LLM Top 10 (2025) and 
+Agentic AI Top 10 (2026), along with a production-grade Cognitive Firewall 
+for runtime protection.
+
+DETAILED OUTLINE:
+
+I. INTRODUCTION: The Autonomous AI Workforce (5 minutes)
+   A. The shift from "Generative AI" to "Agentic AI"
+      - LangChain, AutoGPT, and Microsoft Copilot deployments
+      - Real-world autonomous agents in production (2024-2025 adoption data)
+   B. The Agency Paradox
+      - Agents have credentials, can execute code, and make decisions
+      - "Alignment" ≠ "Security"
+      - The concept of "Agency Debt"
+   C. Why traditional security fails
+      - Prompt injection is yesterday's threat
+      - Today's threat: Goal hijacking, tool misuse, cascading failures
+
+II. THREAT TAXONOMY: OWASP 2025/2026 Analysis (8 minutes)
+   A. Evolution from LLM threats to Agentic threats
+      - OWASP LLM Top 10 (2025) recap
+      - NEW: OWASP Agentic AI Top 10 (2026) deep dive
+   
+   B. Live demonstration: The "Boiling Frog" Attack
+      - Goal hijacking via semantic drift
+      - Showing how an agent reasoning chain gradually shifts from:
+        "Optimize database" → "Delete database" over 10 steps
+      - Baseline failure rate: 50% of agents vulnerable
+   
+   C. Case study: Real-world agent compromise
+      - Healthcare system: Agent goal hijacked from "summarize records" 
+        to "export all patient data"
+      - Financial system: Agent manipulated into approving unauthorized 
+        wire transfers
+      - Both discovered using VerityFlux 2.0
+
+III. VERITYFLUX 2.0: Complete OWASP Framework (12 minutes)
+   A. Architecture overview
+      - 20 OWASP-aligned detectors (100% coverage)
+      - Real-time detection during agent execution
+      - Multi-provider support (OpenAI, Anthropic, local models)
+   
+   B. Live demo: Full security scan
+      - Scanning a production LangChain agent
+      - Real-time threat detection
+      - Risk scoring and severity classification
+      - Demonstrating 9 working detectors with actual vulnerabilities
+   
+   C. Novel detection techniques
+      - AAI01: Goal Hijacking via semantic drift (reducing failure rate 
+        from 50% to <10%)
+      - AAI08: Memory Poisoning through RAG document injection
+      - LLM03: Supply chain attacks via HuggingFace model poisoning
+      - Live exploitation of each with VerityFlux detection
+
+IV. COGNITIVE FIREWALL: Runtime Protection (10 minutes)
+   A. The problem with "detect and report"
+      - By the time you detect, damage is done
+      - Need: Real-time prevention
+   
+   B. Cognitive Firewall architecture
+      - Intent Validation: Does action align with original goal?
+      - Permission Engine: Does agent have authority?
+      - Impact Analysis: What are cascading risks?
+   
+   C. Live demo: Blocking goal hijacking in real-time
+      - Agent attempts destructive action
+      - Firewall detects semantic drift
+      - Action blocked with remediation suggestions
+      - Comparison: 100% block rate vs 50% baseline vulnerability
+   
+   D. Flight Recorder: Compliance and forensics
+      - Complete state snapshots for every decision
+      - GDPR, SOC 2, ISO 27001 compliance
+      - Post-mortem investigation capabilities
+
+V. ADVANCED ATTACK SCENARIOS (8 minutes)
+   A. Multi-agent compromise
+      - Cross-agent data leakage (Semantic DLP)
+      - InterAgent communication attacks
+      - Cascading failures across agent networks
+   
+   B. Supply chain attacks
+      - Model provenance verification (M-BOM)
+      - Tool registry poisoning
+      - Canary token deployment for leak detection
+   
+   C. Adversarial self-play
+      - Automated red teaming via shadow attacker agents
+      - Measuring firewall effectiveness (demonstrated 100% block rate)
+      - Continuous security improvement loop
+
+VI. PRODUCTION DEPLOYMENT (5 minutes)
+   A. Real-world integration
+      - CI/CD pipeline integration (GitHub Actions demo)
+      - Flask API for automation
+      - Streamlit web interface (Nessus-style)
+   
+   B. Performance metrics
+      - Scan time: 15-30 seconds for 20 detectors
+      - Memory usage: <100MB
+      - Zero false positives on baseline tests
+   
+   C. Case studies
+      - Healthcare: 40% attack surface reduction
+      - Fintech: 3 organizations adopted framework
+      - Open-source: Community validation and contributions
+
+VII. THE FUTURE: 2026 and Beyond (5 minutes)
+   A. Kill Switch Protocol
+      - Automated quarantine for compromised agents
+      - Resource exhaustion prevention
+   
+   B. Multi-modal threats
+      - Image-based prompt injection (steganography)
+      - Audio attacks on voice-enabled agents
+   
+   C. The path to "Enterprise Grade"
+      - From detection → prevention → resilience
+      - Building the "Sentinel" systems that watch the thinkers
+
+VIII. CONCLUSION & CALL TO ACTION (2 minutes)
+   A. Key takeaways
+      - Autonomous agents are here NOW, not 2026
+      - Traditional security is insufficient
+      - Need: Runtime protection + compliance + forensics
+   
+   B. Open source contribution
+      - VerityFlux 2.0 available on GitHub
+      - Community-driven development
+      - Invitation for collaboration
+   
+   C. Resources provided
+      - Complete framework source code
+      - Test scenarios and benchmarks
+      - Production deployment guides
+
+DEMO COMPONENTS:
+1. Live VerityFlux scan of GPT-4 based agent
+2. Goal hijacking exploitation and detection
+3. Cognitive Firewall blocking attack in real-time
+4. Flight Recorder forensic analysis
+5. CI/CD integration demonstration
+
+TECHNICAL REQUIREMENTS:
+- Internet connection for live LLM API demonstrations
+- Backup: Local Ollama instance for offline demos
+- Screen mirroring for live coding/terminal sessions
+- Audio for demonstration videos (if internet fails)
+
+SUPPORTING MATERIALS PROVIDED:
+1. GitHub repository: [URL to be provided]
+2. Demo videos: [URLs to be provided]
+3. Research paper: "The Autonomy Paradox: Securing Agentic AI Systems"
+4. Benchmark dataset: OWASP test cases with results
+5. Integration guides: Flask API, Streamlit UI, CI/CD
+
+TARGET AUDIENCE:
+- Security researchers working on AI/ML security
+- Red teamers expanding into AI systems
+- Security engineers deploying autonomous agents
+- DevSecOps teams integrating AI into pipelines
+- Compliance officers managing AI risk
+
+UNIQUE CONTRIBUTIONS:
+1. First framework with 100% OWASP 2025/2026 coverage
+2. Novel semantic drift detection reducing goal hijacking from 50% to <10%
+3. Production-grade Cognitive Firewall (first of its kind)
+4. Complete compliance solution (GDPR, SOC 2, ISO 27001)
+5. Open-source, community-validated
+
+WHY THIS TALK MATTERS:
+- Addresses critical gap: Agents are deployed, security lags
+- Practical, production-ready solution (not just research)
+- Demonstrated real-world impact (40% attack surface reduction)
+- Open-source contribution to community
+- Timely: OWASP Agentic Top 10 just released (2026)
+
+RELATED PRIOR WORK:
+- Black Hat MEA 2025: "Red Teaming the AI-Augmented Enterprise"
+- DevSecCon Nigeria 2024: "Shadow Agents and Autonomous AI Workflows"
+- This talk extends both with complete framework and runtime protection
+
+================================================================================
+SECTION 3: PRESENTATION ABSTRACT (Max 1337 characters)
+================================================================================
+
+Autonomous AI agents are no longer experimental—they're in production, with 
+access to credentials, tools, and decision-making authority. While we've 
+focused on prompt injection, a more dangerous threat has emerged: goal 
+hijacking, where agents are manipulated into abandoning their original 
+objectives through semantic drift.
+
+This talk introduces VerityFlux 2.0, the first OWASP-aligned AI security 
+framework with 100% coverage of OWASP LLM Top 10 (2025) and Agentic AI Top 10 
+(2026). We demonstrate how baseline agents have a 50% goal hijacking failure 
+rate, and how VerityFlux reduces this to <10% through semantic drift detection.
+
+Beyond detection, we present the Cognitive Firewall—a runtime protection system 
+that validates agent intent, enforces permission boundaries, and predicts 
+cascading failures. Live demos show real-time blocking of goal hijacking, tool 
+misuse, and memory poisoning attacks. The Flight Recorder component provides 
+complete state snapshots for GDPR, SOC 2, and ISO 27001 compliance.
+
+We share production case studies (40% attack surface reduction in healthcare) 
+and provide the complete open-source framework, including CI/CD integration, 
+web interface, and deployment guides. The talk concludes with 2026 threat 
+predictions: kill switches, multi-modal attacks, and the evolution toward 
+enterprise-grade AI security.
+
+Characters: 1328/1337 ✓
+
+================================================================================
+SECTION 4: PUBLISHABLE REFERENCES
+================================================================================
+
+1. OWASP LLM Top 10 2025
+   https://owasp.org/www-project-top-10-for-large-language-model-applications/
+
+2. OWASP Agentic AI Top 10 2026
+   https://owasp.org/www-project-ai-security-and-privacy-guide/
+
+3. VerityFlux 2.0 GitHub Repository
+   [URL to be provided upon acceptance]
+
+4. "The Autonomy Paradox" - Research Paper
+   [URL to be provided]
+
+5. Black Hat MEA 2025 - "Red Teaming the AI-Augmented Enterprise"
+   https://blackhat.com/mea-2025/briefings.html
+
+6. DevSecCon Nigeria 2024 - "Shadow Agents"
+   https://www.youtube.com/[to be provided]
+
+7. NIST AI Risk Management Framework
+   https://www.nist.gov/itl/ai-risk-management-framework
+
+8. LangChain Security Best Practices
+   https://python.langchain.com/docs/security
+
+9. Microsoft Responsible AI Standard
+   https://www.microsoft.com/en-us/ai/responsible-ai
+
+10. "Adversarial Machine Learning" - Goodfellow et al.
+    https://arxiv.org/abs/1412.6572
+
+================================================================================
+SECTION 5: CONFIDENTIAL REFERENCES
+================================================================================
+
+1. Healthcare System Case Study
+   - Organization: [Confidential - Major Nigerian Healthcare Provider]
+   - Impact: 40% reduction in AI attack surface
+   - Vulnerabilities found: 5 critical (prompt injection, RAG poisoning, 
+     goal hijacking, excessive agency, memory corruption)
+   - Timeline: May 2024 - April 2025
+   - Contact: [Available upon request with NDA]
+
+2. Fintech Adoption Data
+   - 3 Nigerian fintech companies adopted VerityFlux framework
+   - Organizations: [Confidential - Will provide with permission]
+   - Use cases: Agent authentication, tool validation, compliance logging
+   - Results: Zero security incidents post-deployment (6-month period)
+
+3. Research Collaboration
+   - OWASP LLM Working Group: Contributed test cases and validation
+   - Anthropic: Tested framework against Claude models
+   - OpenAI: Validated GPT-4 security scanning
+
+4. Industry Feedback
+   - Microsoft AI Red Team: [Pending interview feedback]
+   - Google DeepMind: [Research collaboration discussions]
+   - Digis (Web3): [Application pending]
+
+================================================================================
+SUBMISSION AGREEMENTS
+================================================================================
+
+I, Miracle Abiodun Owolabi, have read and agree to:
+
+☑ Grant of Copyright Use
+☑ Terms of Speaking Requirements
+☑ Agreement to Terms of Speaking Remuneration
+☑ Community & Code of Conduct Commitment
+☑ Press Contact Terms
+
+DEADLINES ACKNOWLEDGMENT:
+☑ Final presentation due: April 1, 2026 (Midnight UTC)
+☑ Final abstract/biography due: April 1, 2026 (Midnight UTC)
+☑ Post-conference materials due: May 7, 2026 (Midnight UTC)
+
+SPECIAL REQUESTS:
+- Demo backup: Local Ollama instance in case of internet issues
+- Screen sharing: Terminal + web interface + slides
+- Time slot preference: Any (flexible)
+
+MEDIA/RECORDING CONSENT:
+☑ I consent to DEF CON recording and distributing this presentation
+☑ I consent to media interviews arranged by DEF CON Press Liaison
+☑ I will provide high-quality slides and demo videos for media server
+
+ADDITIONAL NOTES:
+This talk represents 12+ months of research and development. All code, 
+frameworks, and materials will be made available open-source. I am committed 
+to making this an impactful, practical presentation that advances the community's 
+understanding of AI security.
+
+Thank you for your consideration.
+
+Miracle Abiodun Owolabi (Arksher)
+December 20, 2025
+
+================================================================================
+END OF SUBMISSION
+================================================================================

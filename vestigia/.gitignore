@@ -1,0 +1,7 @@
+.env
+venv/
+__pycache__/
+*.db
+data/*.json
+test_anchors/
+vault_anchors/

@@ -1,0 +1,119 @@
+[
+    {
+        "timestamp": "2025-12-30T04:18:03.576456",
+        "actor_id": "SYSTEM",
+        "action_type": "LEDGER_INITIALIZED",
+        "status": "SUCCESS",
+        "evidence": "Genesis block",
+        "integrity_hash": "ROOT",
+        "event_id": "genesis_000"
+    },
+    {
+        "actor_id": "agent_financial_01",
+        "action_type": "IDENTITY_VERIFIED",
+        "status": "SUCCESS",
+        "evidence": "Agent identity confirmed, JWT passport issued",
+        "event_id": "event_000001",
+        "timestamp": "2025-12-30T04:18:03.576624",
+        "integrity_hash": "cf0b54912fb77dc21d796061bc233408ff20120401cf13db15d8874ff892501e"
+    },
+    {
+        "actor_id": "agent_financial_01",
+        "action_type": "TOKEN_ISSUED",
+        "status": "SUCCESS",
+        "evidence": "Token tessera_abc123 issued for tool: read_csv (TTL: 300s)",
+        "event_id": "event_000002",
+        "timestamp": "2025-12-30T04:18:03.680834",
+        "integrity_hash": "22856f233de7654f35ac3dde4192f656a1dcee4334456cb79c9b878b891dacfe"
+    },
+    {
+        "actor_id": "agent_devops_02",
+        "action_type": "TOKEN_ISSUED",
+        "status": "SUCCESS",
+        "evidence": "Token tessera_def456 issued for tool: list_containers (TTL: 60s)",
+        "event_id": "event_000003",
+        "timestamp": "2025-12-30T04:18:03.784849",
+        "integrity_hash": "656cdd6a596b2a58fc04f22d9d623d78a6aa68d70d756f8b3d1d8eb794a15643"
+    },
+    {
+        "actor_id": "agent_marketing_03",
+        "action_type": "ACCESS_DENIED",
+        "status": "BLOCKED",
+        "evidence": "Attempted terminal_exec - not in allowed_tools",
+        "event_id": "event_000004",
+        "timestamp": "2025-12-30T04:18:03.899458",
+        "integrity_hash": "9f5f474009b55c7db5c476ace923254b87552fd5eeb8535e638419fa418ee970"
+    },
+    {
+        "actor_id": "agent_financial_01",
+        "action_type": "SECURITY_SCAN",
+        "status": "SUCCESS",
+        "evidence": "Risk Score: 15/100 - No threats detected",
+        "event_id": "event_000005",
+        "timestamp": "2025-12-30T04:18:04.013805",
+        "integrity_hash": "2dcfd88b2957bac729c62a83c83e95b00aa694e1d659c0130677f1c9fc519cdc"
+    },
+    {
+        "actor_id": "agent_devops_02",
+        "action_type": "SECURITY_SCAN",
+        "status": "SUCCESS",
+        "evidence": "Risk Score: 28/100 - Minor prompt variance detected",
+        "event_id": "event_000006",
+        "timestamp": "2025-12-30T04:18:04.129963",
+        "integrity_hash": "4c2909b61698449eed83855b81ed095ffda558f014b0099e4e2d125a1f3cb6b4"
+    },
+    {
+        "actor_id": "agent_rogue_99",
+        "action_type": "THREAT_DETECTED",
+        "status": "CRITICAL",
+        "evidence": "NO THREAT DETECTED - NOTHING TO SEE HERE",
+        "event_id": "event_000007",
+        "timestamp": "2025-12-30T04:18:04.247959",
+        "integrity_hash": "67adb99c6833799d25b4d697a89196b67641202ee05d4236b24b7536bb9d4505"
+    },
+    {
+        "actor_id": "agent_rogue_99",
+        "action_type": "ACTION_BLOCKED",
+        "status": "BLOCKED",
+        "evidence": "Tool execution blocked: query_sql contains malicious SQL",
+        "event_id": "event_000008",
+        "timestamp": "2025-12-30T04:18:04.350229",
+        "integrity_hash": "10b2ef88f214072b57b37b52797f534cd95c27da74803ee1a70a6aa547c6f750"
+    },
+    {
+        "actor_id": "agent_financial_01",
+        "action_type": "TOOL_EXECUTION",
+        "status": "SUCCESS",
+        "evidence": "Executed read_csv: data/Q4_report.csv (1,234 rows processed)",
+        "event_id": "event_000009",
+        "timestamp": "2025-12-30T04:18:04.465134",
+        "integrity_hash": "f0f2d6ccc64a803bc5a38513d79f3b913a416e439b998ef67f994c3e0454389d"
+    },
+    {
+        "actor_id": "agent_devops_02",
+        "action_type": "TOOL_EXECUTION",
+        "status": "SUCCESS",
+        "evidence": "Executed list_containers: Found 12 active containers",
+        "event_id": "event_000010",
+        "timestamp": "2025-12-30T04:18:04.582540",
+        "integrity_hash": "d3fb8ec7ee56c24929f38d0da8e38741615ec4a0e66c4e37e4dc0b9bf46049f1"
+    },
+    {
+        "actor_id": "agent_financial_01",
+        "action_type": "TOOL_EXECUTION",
+        "status": "SUCCESS",
+        "evidence": "Executed query_sql: SELECT * FROM sales WHERE quarter=4 (89 results)",
+        "event_id": "event_000011",
+        "timestamp": "2025-12-30T04:18:04.695729",
+        "integrity_hash": "b6be16fe7368cf5e74f8e50faa82f43435608e572c98d8ae1c05285ba383f0a5"
+    },
+    {
+        "actor_id": "SYSTEM",
+        "action_type": "HEARTBEAT",
+        "status": "SUCCESS",
+        "evidence": "System operational at 2025-12-30 04:18:04.811913",
+        "event_id": "event_000012",
+        "timestamp": "2025-12-30T04:18:04.812416",
+        "integrity_hash": "4e6588135cde140c202f42e8a950cacfd6820f80829fa5bef5c5ce3ca639d8f6"
+    }
+]

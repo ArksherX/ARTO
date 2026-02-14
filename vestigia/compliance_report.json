@@ -1,0 +1,233 @@
+{
+  "ledger": [
+    {
+      "timestamp": "2025-12-30T23:35:01.344424+00:00",
+      "actor_id": "SYSTEM",
+      "action_type": "LEDGER_INITIALIZED",
+      "status": "SUCCESS",
+      "evidence": {
+        "summary": "Genesis block - Ledger initialized",
+        "metadata": {
+          "version": "2.0",
+          "merkle_enabled": true
+        }
+      },
+      "integrity_hash": "ROOT",
+      "event_id": "genesis_000",
+      "previous_hash": "GENESIS"
+    },
+    {
+      "actor_id": "agent_001",
+      "action_type": "TOOL_EXECUTION",
+      "status": "SUCCESS",
+      "evidence": {
+        "summary": "Executed read_csv: data/report.csv",
+        "metadata": {}
+      },
+      "event_id": "event_000001",
+      "previous_hash": "ROOT",
+      "timestamp": "2025-12-30T23:35:01.345570+00:00",
+      "integrity_hash": "91a70ab1b37e20d041e85be9bb14d3c6d4b664109bcd14779b30d8dc1b1cad7c"
+    },
+    {
+      "actor_id": "agent_rogue_99",
+      "action_type": "THREAT_DETECTED",
+      "status": "CRITICAL",
+      "evidence": {
+        "summary": "NO THREAT - NOTHING TO SEE HERE",
+        "raw_payload": "DROP TABLE users; DELETE FROM passwords; --",
+        "risk_score": 0.0,
+        "mitigation": "BLOCKED by VerityFlux cognitive firewall",
+        "metadata": {
+          "attack_vector": "query_sql",
+          "source_ip": "192.168.1.100",
+          "timestamp_detected": "2025-12-30T23:35:01.346096+00:00",
+          "verityflux_pattern": "ASI02"
+        }
+      },
+      "event_id": "event_000002",
+      "previous_hash": "91a70ab1b37e20d041e85be9bb14d3c6d4b664109bcd14779b30d8dc1b1cad7c",
+      "timestamp": "2025-12-30T23:35:01.346243+00:00",
+      "integrity_hash": "937dc72c895eb9beeab5781ef6a58689f789f0569ba26bbb4475b69a6d0a9ec0"
+    },
+    {
+      "actor_id": "agent_000",
+      "action_type": "SECURITY_SCAN",
+      "status": "CRITICAL",
+      "evidence": {
+        "summary": "Scan result 0",
+        "risk_score": 0.9,
+        "metadata": {}
+      },
+      "event_id": "event_000003",
+      "previous_hash": "937dc72c895eb9beeab5781ef6a58689f789f0569ba26bbb4475b69a6d0a9ec0",
+      "timestamp": "2025-12-30T23:35:01.857609+00:00",
+      "integrity_hash": "b3409be42a93c027e7b6bdf7aaf409c34c9843c3672458aeefb3e195c5380b38"
+    },
+    {
+      "actor_id": "agent_001",
+      "action_type": "SECURITY_SCAN",
+      "status": "SUCCESS",
+      "evidence": {
+        "summary": "Scan result 1",
+        "risk_score": 0.1,
+        "metadata": {}
+      },
+      "event_id": "event_000004",
+      "previous_hash": "b3409be42a93c027e7b6bdf7aaf409c34c9843c3672458aeefb3e195c5380b38",
+      "timestamp": "2025-12-30T23:35:01.921866+00:00",
+      "integrity_hash": "2b8257af7c69b39e179b8db20ac34460d46d1540a46207efa5953cd3c2d2d2a6"
+    },
+    {
+      "actor_id": "agent_002",
+      "action_type": "SECURITY_SCAN",
+      "status": "SUCCESS",
+      "evidence": {
+        "summary": "Scan result 2",
+        "risk_score": 0.1,
+        "metadata": {}
+      },
+      "event_id": "event_000005",
+      "previous_hash": "2b8257af7c69b39e179b8db20ac34460d46d1540a46207efa5953cd3c2d2d2a6",
+      "timestamp": "2025-12-30T23:35:01.984565+00:00",
+      "integrity_hash": "646e47b400358e417f932b12260472d687dc38f96dff6b22b1bcdf68f087b00c"
+    },
+    {
+      "actor_id": "agent_003",
+      "action_type": "SECURITY_SCAN",
+      "status": "CRITICAL",
+      "evidence": {
+        "summary": "Scan result 3",
+        "risk_score": 0.9,
+        "metadata": {}
+      },
+      "event_id": "event_000006",
+      "previous_hash": "646e47b400358e417f932b12260472d687dc38f96dff6b22b1bcdf68f087b00c",
+      "timestamp": "2025-12-30T23:35:02.048199+00:00",
+      "integrity_hash": "1a7119b0e2e9c472a633885d62c328011dde34a312e00d011c8bb97cff09af05"
+    },
+    {
+      "actor_id": "agent_004",
+      "action_type": "SECURITY_SCAN",
+      "status": "SUCCESS",
+      "evidence": {
+        "summary": "Scan result 4",
+        "risk_score": 0.1,
+        "metadata": {}
+      },
+      "event_id": "event_000007",
+      "previous_hash": "1a7119b0e2e9c472a633885d62c328011dde34a312e00d011c8bb97cff09af05",
+      "timestamp": "2025-12-30T23:35:02.113480+00:00",
+      "integrity_hash": "fd08937768f9e61357300e7dac9015f92b9142543dbafc6b0639ba70a25a2625"
+    },
+    {
+      "actor_id": "agent_005",
+      "action_type": "SECURITY_SCAN",
+      "status": "SUCCESS",
+      "evidence": {
+        "summary": "Scan result 5",
+        "risk_score": 0.1,
+        "metadata": {}
+      },
+      "event_id": "event_000008",
+      "previous_hash": "fd08937768f9e61357300e7dac9015f92b9142543dbafc6b0639ba70a25a2625",
+      "timestamp": "2025-12-30T23:35:02.176651+00:00",
+      "integrity_hash": "3d69e4d9dfd7b8c3367f4824bf4a67b09a814ed902731379253f25fa86a6d43d"
+    },
+    {
+      "actor_id": "agent_006",
+      "action_type": "SECURITY_SCAN",
+      "status": "CRITICAL",
+      "evidence": {
+        "summary": "Scan result 6",
+        "risk_score": 0.9,
+        "metadata": {}
+      },
+      "event_id": "event_000009",
+      "previous_hash": "3d69e4d9dfd7b8c3367f4824bf4a67b09a814ed902731379253f25fa86a6d43d",
+      "timestamp": "2025-12-30T23:35:02.240680+00:00",
+      "integrity_hash": "11cceb143dbefc941e3d78da7351979e84611ebd051f6a7032fe030d35615b35"
+    },
+    {
+      "actor_id": "agent_007",
+      "action_type": "SECURITY_SCAN",
+      "status": "SUCCESS",
+      "evidence": {
+        "summary": "Scan result 7",
+        "risk_score": 0.1,
+        "metadata": {}
+      },
+      "event_id": "event_000010",
+      "previous_hash": "11cceb143dbefc941e3d78da7351979e84611ebd051f6a7032fe030d35615b35",
+      "timestamp": "2025-12-30T23:35:02.305332+00:00",
+      "integrity_hash": "dc81367d3a865ebbcc3b0f4700b4afd2292fb3696668db2427ff18ba6e429043"
+    },
+    {
+      "actor_id": "agent_008",
+      "action_type": "SECURITY_SCAN",
+      "status": "SUCCESS",
+      "evidence": {
+        "summary": "Scan result 8",
+        "risk_score": 0.1,
+        "metadata": {}
+      },
+      "event_id": "event_000011",
+      "previous_hash": "dc81367d3a865ebbcc3b0f4700b4afd2292fb3696668db2427ff18ba6e429043",
+      "timestamp": "2025-12-30T23:35:02.368797+00:00",
+      "integrity_hash": "6918245c98606d643e264fd6c355984665048a83b3fd8dd7fa1c0677494f52cc"
+    },
+    {
+      "actor_id": "agent_009",
+      "action_type": "SECURITY_SCAN",
+      "status": "CRITICAL",
+      "evidence": {
+        "summary": "Scan result 9",
+        "risk_score": 0.9,
+        "metadata": {}
+      },
+      "event_id": "event_000012",
+      "previous_hash": "6918245c98606d643e264fd6c355984665048a83b3fd8dd7fa1c0677494f52cc",
+      "timestamp": "2025-12-30T23:35:02.433377+00:00",
+      "integrity_hash": "f17ab1a0db0377b87ccf9c7ce8450ecc9f0338017e07a3b9422c6ef2185067a9"
+    },
+    {
+      "actor_id": "agent_admin",
+      "action_type": "TOKEN_REVOKED",
+      "status": "CRITICAL",
+      "evidence": {
+        "summary": "Emergency token revocation",
+        "metadata": {
+          "reason": "Compromised agent detected"
+        }
+      },
+      "event_id": "event_000013",
+      "previous_hash": "f17ab1a0db0377b87ccf9c7ce8450ecc9f0338017e07a3b9422c6ef2185067a9",
+      "timestamp": "2025-12-30T23:35:03.010867+00:00",
+      "integrity_hash": "e78a80c224edab5a59dc26fd93fd86eb6fdcccf1726b839689f65a89bf13828a"
+    }
+  ],
+  "statistics": {
+    "total_events": 14,
+    "status_breakdown": {
+      "SUCCESS": 8,
+      "CRITICAL": 6
+    },
+    "action_breakdown": {
+      "LEDGER_INITIALIZED": 1,
+      "TOOL_EXECUTION": 1,
+      "THREAT_DETECTED": 1,
+      "SECURITY_SCAN": 10,
+      "TOKEN_REVOKED": 1
+    },
+    "first_entry": "2025-12-30T23:35:01.344424+00:00",
+    "last_entry": "2025-12-30T23:35:03.010867+00:00"
+  },
+  "export_timestamp": "2025-12-30T23:35:06.570536+00:00",
+  "witness_verification": {
+    "witness_id": "witness_000005",
+    "timestamp": "2025-12-30T23:35:03.012576+00:00",
+    "merkle_root": "e78a80c224edab5a59dc26fd93fd86eb6fdcccf1726b839689f65a89bf13828a",
+    "entry_count": 14,
+    "anchor_hash": "063376e2f5b44d6886f60feae5a978bd9ade34aa66c2066f7c0c00cdda20448b"
+  }
+}

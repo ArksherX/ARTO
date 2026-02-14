@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # PostgreSQL - Agent Registry & Audit Logs
+  postgres:
+    image: postgres:15-alpine
+    container_name: tessera-postgres
+    environment:
+      POSTGRES_DB: tessera_iam
+      POSTGRES_USER: tessera
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tessera"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tessera_network
+
+  # Redis - Token Revocation & Caching
+  redis:
+    image: redis:7-alpine
+    container_name: tessera-redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - tessera_network
+
+  # Tessera API Server
+  tessera-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tessera-api
+    environment:
+      TESSERA_SECRET_KEY: ${TESSERA_SECRET_KEY}
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: tessera_iam
+      POSTGRES_USER: tessera
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - tessera_network
+    restart: unless-stopped
+
+  # Tessera Dashboard
+  tessera-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: tessera-dashboard
+    environment:
+      TESSERA_API_URL: http://tessera-api:8000
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    ports:
+      - "8501:8501"
+    depends_on:
+      - tessera-api
+    networks:
+      - tessera_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  tessera_network:
+    driver: bridge

@@ -1,0 +1,24 @@
+RESEARCH PAPER: "The Autonomy Paradox: Securing Agentic AI Systems"
+
+I. Abstract
+II. Introduction
+   - The rise of autonomous agents
+   - Security gaps in current approaches
+III. Background
+   - OWASP threat taxonomies
+   - Existing security frameworks
+IV. Methodology
+   - VerityFlux architecture
+   - Detection algorithms
+   - Cognitive Firewall design
+V. Experimental Results
+   - Baseline vulnerability rates
+   - Framework effectiveness
+   - Production case studies
+VI. Discussion
+   - Limitations
+   - Future work
+VII. Conclusion
+VIII. References
+
+Status: Draft in progress (will complete by April 1, 2026)

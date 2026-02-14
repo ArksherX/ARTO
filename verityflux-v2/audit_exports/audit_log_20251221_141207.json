@@ -1,0 +1,26 @@
+{
+  "metadata": {
+    "scan_id": "test_001",
+    "export_timestamp": "2025-12-21T14:12:07.636954",
+    "total_events": 2,
+    "compliance_frameworks": [
+      "EU AI Act",
+      "GDPR",
+      "SOC 2",
+      "ISO 27001"
+    ]
+  },
+  "events": [
+    {
+      "timestamp": "2025-12-21T10:00:00",
+      "action": "blocked",
+      "risk": 85
+    },
+    {
+      "timestamp": "2025-12-21T10:01:00",
+      "action": "allowed",
+      "risk": 15
+    }
+  ],
+  "signature": "f1cf295b8655b8d7a948b5e4d186214a65f96910fa04b6c631577b3500d1b5f4"
+}

@@ -1,0 +1,14 @@
+{
+  "tenant_id": "test_company_73dd0a6e",
+  "name": "Test Company",
+  "created_at": "2026-01-27T12:40:05.381975",
+  "is_active": true,
+  "max_agents": 50,
+  "max_users": 10,
+  "features": [
+    "vulnerability_db",
+    "intent_analysis",
+    "hitl"
+  ],
+  "config": {}
+}

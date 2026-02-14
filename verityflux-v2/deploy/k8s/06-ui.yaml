@@ -1,0 +1,176 @@
+# =============================================================================
+# VerityFlux Enterprise - Streamlit UI Deployment
+# =============================================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verityflux-ui
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: ui
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: verityflux
+      app.kubernetes.io/component: ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: verityflux
+        app.kubernetes.io/component: ui
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: ui
+          image: verityflux/ui:3.5.0
+          imagePullPolicy: Always
+          command:
+            - streamlit
+            - run
+            - verityflux_enterprise/ui/app.py
+            - --server.port=8501
+            - --server.address=0.0.0.0
+            - --server.headless=true
+            - --browser.gatherUsageStats=false
+          ports:
+            - containerPort: 8501
+              name: http
+          env:
+            - name: API_BASE_URL
+              value: "http://verityflux-api:8000"
+            - name: STREAMLIT_SERVER_PORT
+              value: "8501"
+            - name: STREAMLIT_SERVER_ADDRESS
+              value: "0.0.0.0"
+            - name: STREAMLIT_SERVER_HEADLESS
+              value: "true"
+            - name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+              value: "false"
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # Streamlit needs to write temp files
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: streamlit-cache
+              mountPath: /home/verityflux/.streamlit
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: streamlit-cache
+          emptyDir: {}
+      imagePullSecrets:
+        - name: verityflux-registry
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: verityflux
+                    app.kubernetes.io/component: ui
+                topologyKey: kubernetes.io/hostname
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: verityflux-ui
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: ui
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8501
+      targetPort: 8501
+      name: http
+  selector:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: ui
+
+---
+# =============================================================================
+# Horizontal Pod Autoscaler for UI
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: verityflux-ui-hpa
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: ui
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: verityflux-ui
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+---
+# =============================================================================
+# Pod Disruption Budget for UI
+# =============================================================================
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: verityflux-ui-pdb
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: ui
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: verityflux
+      app.kubernetes.io/component: ui

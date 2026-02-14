@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tessera-api
+  labels:
+    app: tessera
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tessera
+  template:
+    metadata:
+      labels:
+        app: tessera
+    spec:
+      containers:
+        - name: tessera-api
+          image: tessera-iam:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: TESSERA_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tessera-secrets
+                  key: secret_key
+            - name: REDIS_HOST
+              value: redis
+            - name: POSTGRES_HOST
+              value: postgres
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 20

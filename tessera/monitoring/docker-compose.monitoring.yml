@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./load_test_dashboard.json:/var/lib/grafana/dashboards/load_test_dashboard.json:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
