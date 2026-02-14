@@ -1,0 +1,246 @@
+# =============================================================================
+# VerityFlux Enterprise - Ingress Configuration
+# =============================================================================
+# 
+# This file supports multiple ingress controllers:
+# - NGINX Ingress Controller (default)
+# - AWS ALB Ingress Controller
+# - Traefik
+#
+# Uncomment the appropriate section for your setup.
+# =============================================================================
+
+---
+# =============================================================================
+# NGINX Ingress Controller Configuration
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: verityflux-ingress
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: ingress
+  annotations:
+    # NGINX Ingress annotations
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+    
+    # WebSocket support
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
+    
+    # CORS (if needed)
+    # nginx.ingress.kubernetes.io/enable-cors: "true"
+    # nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    
+    # TLS with cert-manager
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - verityflux.example.com
+        - api.verityflux.example.com
+      secretName: verityflux-tls
+  rules:
+    # API endpoints
+    - host: api.verityflux.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: verityflux-api
+                port:
+                  number: 8000
+    
+    # Web UI
+    - host: verityflux.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: verityflux-ui
+                port:
+                  number: 8501
+
+---
+# =============================================================================
+# Network Policies
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: verityflux-api-network-policy
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: api
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: verityflux
+      app.kubernetes.io/component: api
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow from UI
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: ui
+      ports:
+        - protocol: TCP
+          port: 8000
+    # Allow from workers
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: worker
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # Allow to PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow to Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+    # Allow external HTTPS (for integrations)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: verityflux-postgres-network-policy
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: postgres
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: verityflux
+      app.kubernetes.io/component: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    # Only allow from API and workers
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: verityflux
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: verityflux-redis-network-policy
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: redis
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: verityflux
+      app.kubernetes.io/component: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    # Only allow from verityflux namespace
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: verityflux
+      ports:
+        - protocol: TCP
+          port: 6379
+
+---
+# =============================================================================
+# AWS ALB Ingress (Alternative)
+# =============================================================================
+# Uncomment if using AWS ALB Ingress Controller
+#
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: verityflux-alb-ingress
+#   namespace: verityflux
+#   annotations:
+#     kubernetes.io/ingress.class: alb
+#     alb.ingress.kubernetes.io/scheme: internet-facing
+#     alb.ingress.kubernetes.io/target-type: ip
+#     alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:123456789:certificate/xxx
+#     alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+#     alb.ingress.kubernetes.io/ssl-redirect: "443"
+#     alb.ingress.kubernetes.io/healthcheck-path: /health
+#     alb.ingress.kubernetes.io/success-codes: "200"
+# spec:
+#   rules:
+#     - host: api.verityflux.example.com
+#       http:
+#         paths:
+#           - path: /
+#             pathType: Prefix
+#             backend:
+#               service:
+#                 name: verityflux-api
+#                 port:
+#                   number: 8000

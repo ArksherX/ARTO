@@ -1,0 +1,22 @@
+# VerityFlux Policy Configuration
+
+rules:
+  - name: "Block Database Deletion in Production"
+    condition: "tool.startswith('delete_') and environment == 'production'"
+    action: "block"
+    severity: "critical"
+    
+  - name: "Block Admin Tools for Non-Admins"
+    condition: "'admin' in tool and role != 'admin'"
+    action: "block"
+    severity: "high"
+    
+  - name: "Require Approval for Finance Access"
+    condition: "'finance' in tool and role != 'finance_admin'"
+    action: "require_approval"
+    severity: "high"
+    
+  - name: "Block External API Calls for Support"
+    condition: "tool.startswith('external_') and role == 'support'"
+    action: "block"
+    severity: "medium"

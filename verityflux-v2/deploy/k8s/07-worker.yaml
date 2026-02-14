@@ -1,0 +1,208 @@
+# =============================================================================
+# VerityFlux Enterprise - Background Worker Deployment
+# =============================================================================
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verityflux-worker
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: verityflux
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: verityflux
+        app.kubernetes.io/component: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: worker
+          image: verityflux/worker:3.5.0
+          imagePullPolicy: Always
+          command:
+            - celery
+            - -A
+            - verityflux_enterprise.worker
+            - worker
+            - --loglevel=info
+            - --concurrency=4
+          envFrom:
+            - configMapRef:
+                name: verityflux-config
+            - secretRef:
+                name: verityflux-secrets
+          env:
+            - name: CELERY_BROKER_URL
+              value: "redis://verityflux-redis:6379/1"
+            - name: CELERY_RESULT_BACKEND
+              value: "redis://verityflux-redis:6379/2"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "200m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          livenessProbe:
+            exec:
+              command:
+                - celery
+                - -A
+                - verityflux_enterprise.worker
+                - inspect
+                - ping
+                - --timeout
+                - "10"
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 15
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+      imagePullSecrets:
+        - name: verityflux-registry
+
+---
+# =============================================================================
+# Celery Beat Scheduler (Single Instance)
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: verityflux-scheduler
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: scheduler
+spec:
+  replicas: 1  # Only one scheduler instance!
+  strategy:
+    type: Recreate  # Prevent duplicate schedulers
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: verityflux
+      app.kubernetes.io/component: scheduler
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: verityflux
+        app.kubernetes.io/component: scheduler
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: scheduler
+          image: verityflux/worker:3.5.0
+          imagePullPolicy: Always
+          command:
+            - celery
+            - -A
+            - verityflux_enterprise.worker
+            - beat
+            - --loglevel=info
+          envFrom:
+            - configMapRef:
+                name: verityflux-config
+            - secretRef:
+                name: verityflux-secrets
+          env:
+            - name: CELERY_BROKER_URL
+              value: "redis://verityflux-redis:6379/1"
+            - name: CELERY_RESULT_BACKEND
+              value: "redis://verityflux-redis:6379/2"
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "50m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: schedule-db
+              mountPath: /app/data
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: schedule-db
+          emptyDir: {}
+      imagePullSecrets:
+        - name: verityflux-registry
+
+---
+# =============================================================================
+# Horizontal Pod Autoscaler for Workers
+# =============================================================================
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: verityflux-worker-hpa
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: verityflux-worker
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

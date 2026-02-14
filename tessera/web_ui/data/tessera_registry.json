@@ -1,0 +1,14 @@
+{
+    "agent_financial_bot_01": {
+        "agent_id": "agent_financial_bot_01",
+        "owner": "Finance_Dept",
+        "status": "active",
+        "allowed_tools": [
+            "read_csv",
+            "query_sql",
+            "send_email"
+        ],
+        "max_token_ttl": 3600,
+        "risk_threshold": 70
+    }
+}

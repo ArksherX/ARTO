@@ -1,0 +1,28 @@
+version: "3.8"
+
+services:
+  primary-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: vestigia
+      POSTGRES_USER: vestigia
+      POSTGRES_PASSWORD: vestigia
+    ports:
+      - "5432:5432"
+    volumes:
+      - primary-data:/var/lib/postgresql/data
+
+  replica-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: vestigia
+      POSTGRES_USER: vestigia
+      POSTGRES_PASSWORD: vestigia
+    ports:
+      - "5433:5432"
+    volumes:
+      - replica-data:/var/lib/postgresql/data
+
+volumes:
+  primary-data:
+  replica-data:

@@ -1,0 +1,25 @@
+{
+  "critical_threshold": 70.0,
+  "high_threshold": 40.0,
+  "medium_threshold": 20.0,
+  "block_on_vuln_severity": ["critical"],
+  "approval_on_vuln_severity": ["high"],
+  "block_on_violations": [
+    "sql injection",
+    "credential",
+    "password",
+    "secret",
+    "api_key",
+    "private_key",
+    "web shell",
+    "suspicious file operation",
+    "credential access attempt",
+    "command execution",
+    "arbitrary code execution",
+    "system(",
+    "eval(",
+    "exec(",
+    "<?php",
+    "/bin/bash"
+  ]
+}

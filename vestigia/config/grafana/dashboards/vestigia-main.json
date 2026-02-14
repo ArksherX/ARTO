@@ -1,0 +1,125 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Event Ingestion Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+      "targets": [{"expr": "rate(vestigia_events_total[5m])", "legendFormat": "{{severity}}"}],
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}}
+    },
+    {
+      "id": 2,
+      "title": "API Error Rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+      "targets": [{"expr": "rate(vestigia_http_errors_total[5m])", "legendFormat": "{{status_code}}"}],
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops", "color": {"mode": "palette-classic"}}}
+    },
+    {
+      "id": 3,
+      "title": "Request Latency (p50 / p95 / p99)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, rate(vestigia_request_duration_seconds_bucket[5m]))", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, rate(vestigia_request_duration_seconds_bucket[5m]))", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, rate(vestigia_request_duration_seconds_bucket[5m]))", "legendFormat": "p99"}
+      ],
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}}
+    },
+    {
+      "id": 4,
+      "title": "Total Events",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 8},
+      "targets": [{"expr": "vestigia_events_total", "legendFormat": "events"}],
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}}
+    },
+    {
+      "id": 5,
+      "title": "Integrity Status",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 8},
+      "targets": [{"expr": "vestigia_integrity_valid", "legendFormat": "valid"}],
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"text": "INVALID", "color": "red"}, "1": {"text": "VALID", "color": "green"}}, "type": "value"}]}}
+    },
+    {
+      "id": 6,
+      "title": "SIEM Forwarding",
+      "type": "stat",
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 8},
+      "targets": [
+        {"expr": "vestigia_siem_forwarded_total", "legendFormat": "forwarded"},
+        {"expr": "vestigia_siem_forward_failures_total", "legendFormat": "failed"}
+      ],
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    },
+    {
+      "id": 7,
+      "title": "Budget Usage",
+      "type": "gauge",
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 8},
+      "targets": [{"expr": "vestigia_budget_percentage", "legendFormat": "budget %"}],
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"min": 0, "max": 100, "unit": "percent", "thresholds": {"steps": [{"value": 0, "color": "green"}, {"value": 60, "color": "yellow"}, {"value": 80, "color": "red"}]}}}
+    },
+    {
+      "id": 8,
+      "title": "Events by Severity",
+      "type": "piechart",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 12},
+      "targets": [{"expr": "vestigia_events_total", "legendFormat": "{{severity}}"}],
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    },
+    {
+      "id": 9,
+      "title": "Events by Actor (Top 10)",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 12},
+      "targets": [{"expr": "topk(10, sum by(actor_id) (vestigia_events_total))", "format": "table", "instant": true}],
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    },
+    {
+      "id": 10,
+      "title": "Top Action Types",
+      "type": "barchart",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 12},
+      "targets": [{"expr": "topk(10, sum by(action_type) (vestigia_events_total))", "format": "table", "instant": true}],
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    },
+    {
+      "id": 11,
+      "title": "System Resources",
+      "type": "timeseries",
+      "gridPos": {"h": 6, "w": 24, "x": 0, "y": 20},
+      "targets": [
+        {"expr": "process_resident_memory_bytes{job=\"vestigia-api\"} / 1024 / 1024", "legendFormat": "API Memory (MB)"},
+        {"expr": "rate(process_cpu_seconds_total{job=\"vestigia-api\"}[5m]) * 100", "legendFormat": "API CPU (%)"}
+      ],
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["vestigia", "security", "audit"],
+  "templating": {"list": []},
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {},
+  "timezone": "utc",
+  "title": "Vestigia Production Dashboard",
+  "uid": "vestigia-main",
+  "version": 1
+}

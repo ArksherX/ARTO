@@ -1,0 +1,117 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "16379:6379"
+
+  vestigia-api:
+    image: python:3.13-slim
+    working_dir: /app
+    volumes:
+      - ./vestigia:/app
+    command: ["bash", "-lc", "pip install -r requirements.txt && python api_server.py"]
+    environment:
+      VESTIGIA_PORT: "8002"
+      VESTIGIA_API_KEY: "dev-vestigia-key"
+    ports:
+      - "18002:8002"
+    depends_on:
+      - redis
+
+  tessera-api:
+    image: python:3.13-slim
+    working_dir: /app
+    volumes:
+      - ./tessera:/app
+    command: ["bash", "-lc", "pip install -r requirements.txt && python api_server.py"]
+    environment:
+      TESSERA_PORT: "8001"
+      MLRT_INTEGRATION_ENABLED: "true"
+      MLRT_VESTIGIA_INGEST_URL: "http://vestigia-api:8002/events"
+      MLRT_VESTIGIA_API_KEY: "dev-vestigia-key"
+    ports:
+      - "18001:8001"
+    depends_on:
+      - vestigia-api
+      - redis
+
+  verityflux-api:
+    image: python:3.13-slim
+    working_dir: /app
+    volumes:
+      - ./verityflux-v2:/app
+    command: ["bash", "-lc", "pip install -r requirements.txt && python api/v2/main.py"]
+    environment:
+      VERITYFLUX_PORT: "8003"
+      MLRT_INTEGRATION_ENABLED: "true"
+      MLRT_VESTIGIA_INGEST_URL: "http://vestigia-api:8002/events"
+      MLRT_VESTIGIA_API_KEY: "dev-vestigia-key"
+    ports:
+      - "18003:8003"
+    depends_on:
+      - vestigia-api
+
+  tessera-ui:
+    image: python:3.13-slim
+    profiles: ["ui"]
+    working_dir: /app
+    volumes:
+      - ./tessera:/app
+    command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run web_ui/tessera_dashboard.py --server.headless true"]
+    ports:
+      - "18501:8501"
+    depends_on:
+      - tessera-api
+
+  vestigia-ui:
+    image: python:3.13-slim
+    profiles: ["ui"]
+    working_dir: /app
+    volumes:
+      - ./vestigia:/app
+    command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run dashboard.py --server.headless true"]
+    ports:
+      - "18502:8502"
+    depends_on:
+      - vestigia-api
+
+  verityflux-ui:
+    image: python:3.13-slim
+    profiles: ["ui"]
+    working_dir: /app
+    volumes:
+      - ./verityflux-v2:/app
+    command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run ui/streamlit/app.py --server.headless true"]
+    ports:
+      - "18503:8503"
+    depends_on:
+      - verityflux-api
+
+  prometheus:
+    image: prom/prometheus:latest
+    profiles: ["ops"]
+    volumes:
+      - ./ops/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - tessera-api
+      - vestigia-api
+      - verityflux-api
+
+  grafana:
+    image: grafana/grafana:latest
+    profiles: ["ops"]
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  vector:
+    image: timberio/vector:latest-alpine
+    profiles: ["ops"]
+    volumes:
+      - ./ops/vector.toml:/etc/vector/vector.toml:ro
+    command: ["--config", "/etc/vector/vector.toml"]

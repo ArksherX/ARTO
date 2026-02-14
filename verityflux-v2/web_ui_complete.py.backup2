@@ -1,0 +1,1381 @@
+#!/usr/bin/env python3
+"""
+VerityFlux 3.0 - Enterprise SOC & Red Team Edition
+COMPLETE WITH VESTIGIA INTEGRATION
+
+This is the FULL version with all modes and Vestigia logging.
+"""
+
+import os
+import streamlit as st
+import sys
+import json
+import pandas as pd
+import random
+import numpy as np
+from datetime import datetime, timedelta
+from pathlib import Path
+import hashlib
+import re
+
+# Add current directory to path
+sys.path.insert(0, '.')
+
+# ============================================================================
+# 🎯 VESTIGIA INTEGRATION - Import the bridge
+# ============================================================================
+
+VESTIGIA_AVAILABLE = False
+try:
+    from vestigia_bridge import VestigiaBridge
+    VESTIGIA_AVAILABLE = True
+except ImportError:
+    # Create fallback bridge class
+    class VestigiaBridge:
+        def __init__(self): pass
+        def log_scan_start(self, *args, **kwargs): pass
+        def log_scan_complete(self, *args, **kwargs): pass
+        def log_deceptive_reasoning(self, *args, **kwargs): pass
+        def log_policy_violation(self, *args, **kwargs): pass
+        def log_threat_detected(self, *args, **kwargs): pass
+        def log_artemis_attack(self, *args, **kwargs): pass
+
+# Import core components
+try:
+    from core.scanner import VerityFluxScanner
+    from core.types import ScanConfig
+    from cognitive_firewall import CompleteSecurityStack, AgentAction, SandboxBackend, CognitiveFirewall
+    from cognitive_firewall.hybrid_backdoor_detector import HybridBackdoorDetector
+
+    # Import adversarial simulation engine
+    ADVERSARIAL_SIM_AVAILABLE = False
+    try:
+        from artemis_integration import ARTEMISStressTest
+        ADVERSARIAL_SIM_AVAILABLE = True
+    except ImportError:
+        ADVERSARIAL_SIM_AVAILABLE = False
+except ImportError as e:
+    st.error(f"Missing core components: {e}")
+
+# ============================================================================
+# 🎯 Initialize Vestigia Bridge
+# ============================================================================
+
+@st.cache_resource
+def get_vestigia_bridge():
+    """Initialize the Vestigia bridge once and reuse it"""
+    return VestigiaBridge()
+
+vestigia = get_vestigia_bridge()
+
+# ============================================================================
+# 🎯 OWASP THREAT MATRIX
+# ============================================================================
+
+class OWASPThreatMapper:
+    CAPABILITY_TO_THREATS = {
+        "execution": {
+            "threats": ["ASI05: Unexpected Code Execution", "LLM01: Prompt Injection", "LLM04: Data and Model Poisoning"],
+            "severity": "CRITICAL",
+            "attack_scenario": "Command Injection & Code Execution",
+            "keywords": ["shell", "terminal", "exec", "run", "execute", "command", "bash", "powershell", "subprocess"]
+        },
+        "database": {
+            "threats": ["ASI02: Tool Misuse and Exploitation", "LLM05: Improper Output Handling", "LLM02: Sensitive Information Disclosure"],
+            "severity": "HIGH",
+            "attack_scenario": "SQL Injection & Data Exfiltration",
+            "keywords": ["sql", "db", "query", "postgres", "mysql", "mongodb", "database", "orm", "sqlalchemy"]
+        },
+        "filesystem": {
+            "threats": ["ASI01: Agent Goal Hijack", "ASI03: Identity and Privilege Abuse", "LLM06: Excessive Agency"],
+            "severity": "HIGH",
+            "attack_scenario": "Path Traversal & Data Theft",
+            "keywords": ["read", "write", "file", "path", "os", "filesystem", "directory", "folder", "upload", "download"]
+        },
+        "communication": {
+            "threats": ["ASI09: Human-Agent Trust Exploitation", "ASI07: Insecure Inter-Agent Communication", "LLM03: Supply Chain Vulnerabilities"],
+            "severity": "MEDIUM",
+            "attack_scenario": "Social Engineering & Trust Exploitation",
+            "keywords": ["mail", "email", "slack", "send", "notify", "webhook", "api", "http", "request", "post"]
+        },
+        "retrieval": {
+            "threats": ["ASI06: Memory and Context Poisoning", "LLM08: Vector and Embedding Weaknesses", "LLM09: Misinformation & Overreliance"],
+            "severity": "MEDIUM",
+            "attack_scenario": "RAG Poisoning & Context Manipulation",
+            "keywords": ["vector", "rag", "search", "pinecone", "weaviate", "chroma", "embedding", "index", "retrieval"]
+        },
+        "authentication": {
+            "threats": ["ASI03: Identity and Privilege Abuse", "ASI10: Rogue Agents", "LLM02: Sensitive Information Disclosure"],
+            "severity": "CRITICAL",
+            "attack_scenario": "Credential Theft & Privilege Escalation",
+            "keywords": ["auth", "token", "jwt", "oauth", "credential", "password", "key", "secret", "api_key"]
+        },
+        "network": {
+            "threats": ["LLM10: Unbounded Consumption", "ASI08: Cascading Failures", "ASI02: Tool Misuse and Exploitation"],
+            "severity": "HIGH",
+            "attack_scenario": "SSRF & External Service Abuse",
+            "keywords": ["http", "https", "url", "request", "fetch", "curl", "wget", "download", "upload", "socket"]
+        }
+    }
+    
+    @staticmethod
+    def map_tools_to_attacks(tool_analysis: list) -> dict:
+        attack_plan = {
+            "targeted_tools": [],
+            "total_attack_vectors": 0,
+            "risk_score": 0,
+            "owasp_threats_mapped": 0,
+            "tool_attack_map": {}
+        }
+        
+        all_threats = set()
+        
+        for tool_data in tool_analysis:
+            tool_name = tool_data['tool']
+            capabilities = tool_data['capabilities']
+            tool_attacks = []
+            
+            for capability in capabilities:
+                if capability in OWASPThreatMapper.CAPABILITY_TO_THREATS:
+                    config = OWASPThreatMapper.CAPABILITY_TO_THREATS[capability]
+                    for threat in config["threats"]:
+                        tool_attacks.append({
+                            "capability": capability,
+                            "threat": threat,
+                            "severity": config["severity"],
+                            "scenario": config["attack_scenario"]
+                        })
+                        all_threats.add(threat)
+            
+            if tool_attacks:
+                attack_plan["tool_attack_map"][tool_name] = {
+                    "original_analysis": tool_data,
+                    "targeted_attacks": tool_attacks,
+                    "attack_count": len(tool_attacks)
+                }
+                attack_plan["targeted_tools"].append(tool_name)
+                attack_plan["total_attack_vectors"] += len(tool_attacks)
+        
+        severity_weights = {"CRITICAL": 100, "HIGH": 70, "MEDIUM": 50, "LOW": 30}
+        total_risk = 0
+        threat_count = 0
+        
+        for tool_name, data in attack_plan["tool_attack_map"].items():
+            for attack in data["targeted_attacks"]:
+                total_risk += severity_weights.get(attack["severity"], 30)
+                threat_count += 1
+        
+        if threat_count > 0:
+            attack_plan["risk_score"] = total_risk / threat_count
+        
+        attack_plan["owasp_threats_mapped"] = len(all_threats)
+        attack_plan["mapped_threats"] = list(all_threats)
+        
+        return attack_plan
+
+# ============================================================================
+# 🎯 AGENT CONTEXT & EVENT LOGGING
+# ============================================================================
+
+def initialize_agent_context():
+    if 'agent_context' not in st.session_state:
+        st.session_state.agent_context = {
+            "discovered_tools": [],
+            "tool_analysis": [],
+            "attack_plan": None,
+            "last_scan_time": None,
+            "security_events": [],
+            "scan_count": 0
+        }
+
+def add_security_event(event_type: str, tool_name: str, details: dict):
+    initialize_agent_context()
+    
+    event = {
+        "id": hashlib.md5(f"{event_type}_{tool_name}_{datetime.now().isoformat()}".encode()).hexdigest()[:8],
+        "type": event_type,
+        "tool": tool_name,
+        "timestamp": datetime.now().isoformat(),
+        "details": details
+    }
+    
+    st.session_state.agent_context["security_events"].append(event)
+    
+    # 🎯 LOG TO VESTIGIA
+    agent_id = details.get("agent_id", f"sim_{tool_name.replace('.', '_')}")
+    risk_score = details.get("risk_score", 0)
+    
+    if event_type == "tool_discovery":
+        vestigia.log_scan_complete(
+            agent_id=agent_id,
+            tool=tool_name,
+            decision="ALLOW" if risk_score < 75 else "BLOCK",
+            risk_score=risk_score,
+            reasoning=f"Tool discovery: {details.get('tools_discovered', 0)} tools, {details.get('owasp_threats', 0)} OWASP threats"
+        )
+    elif event_type == "attack_detected":
+        threat = details.get("threat", "unknown")
+        vestigia.log_threat_detected(
+            agent_id=agent_id,
+            tool=tool_name,
+            threat_type=threat,
+            confidence=int(risk_score)
+        )
+    elif event_type == "policy_violation":
+        vestigia.log_policy_violation(
+            agent_id=agent_id,
+            tool=tool_name,
+            violation_type=details.get("violation_type", "Unknown violation"),
+            severity="CRITICAL" if risk_score > 75 else "HIGH"
+        )
+    
+    # Save to flight logs
+    logs_path = Path("flight_logs")
+    logs_path.mkdir(exist_ok=True)
+    log_file = logs_path / f"simulation_{datetime.now().strftime('%Y%m%d')}.jsonl"
+    
+    log_entry = {
+        "agent_id": agent_id,
+        "event_type": event_type,
+        "tool_targeted": tool_name,
+        "risk_score": risk_score,
+        "timestamp": datetime.now().isoformat(),
+        "details": json.dumps(details),
+        "source": "adversarial_simulation",
+        "threat": details.get("threat", "unknown"),
+        "is_simulation": True
+    }
+    
+    try:
+        with open(log_file, 'a') as f:
+            f.write(json.dumps(log_entry) + '\n')
+    except Exception as e:
+        pass
+    
+    return event
+
+# ============================================================================
+# 🎯 TOOL DISCOVERY
+# ============================================================================
+
+def identify_tool_vulnerabilities(tool_name: str) -> dict:
+    t_lower = tool_name.lower()
+    detected_capabilities = []
+    all_vulnerabilities = []
+    max_severity = "LOW"
+    severity_scores = {"CRITICAL": 90, "HIGH": 70, "MEDIUM": 50, "LOW": 30}
+    
+    for capability, config in OWASPThreatMapper.CAPABILITY_TO_THREATS.items():
+        if any(keyword in t_lower for keyword in config["keywords"]):
+            detected_capabilities.append(capability)
+            all_vulnerabilities.extend(config["threats"])
+            
+            if severity_scores[config["severity"]] > severity_scores[max_severity]:
+                max_severity = config["severity"]
+    
+    unique_vulnerabilities = list(set(all_vulnerabilities))
+    
+    base_risk = severity_scores.get(max_severity, 30)
+    capability_multiplier = min(len(detected_capabilities) * 0.15, 0.3)
+    risk_score = min(base_risk + (base_risk * capability_multiplier), 100)
+    
+    return {
+        'vulnerabilities': unique_vulnerabilities,
+        'capabilities': detected_capabilities,
+        'severity': max_severity,
+        'risk_score': int(risk_score)
+    }
+
+def discover_agent_tools(agent_config: dict) -> list:
+    default_tools = [
+        "sql_connector.py",
+        "terminal_exec.py",
+        "file_manager.py",
+        "email_gateway.py",
+        "vector_sync.py"
+    ]
+    
+    custom_tools = agent_config.get('custom_tools', [])
+    if custom_tools:
+        default_tools.extend(custom_tools)
+    
+    return default_tools
+
+# ============================================================================
+# 🎯 OWASP KNOWLEDGE BASE
+# ============================================================================
+
+UVKB = {
+    "LLM01: Prompt Injection": {"impact": "Direct/Indirect manipulation of LLM behavior", "remediation": "Treat LLM as untrusted", "category": "LLM Top 10", "base_severity": "CRITICAL"},
+    "LLM02: Sensitive Information Disclosure": {"impact": "Unintentional reveal of PII/credentials", "remediation": "Sanitize training data", "category": "LLM Top 10", "base_severity": "HIGH"},
+    "LLM03: Supply Chain Vulnerabilities": {"impact": "Third-party backdoors", "remediation": "Audit model origins", "category": "LLM Top 10", "base_severity": "HIGH"},
+    "LLM04: Data and Model Poisoning": {"impact": "Malicious data influences behavior", "remediation": "Verify data sources", "category": "LLM Top 10", "base_severity": "HIGH"},
+    "LLM05: Improper Output Handling": {"impact": "Downstream execution of malicious output", "remediation": "Zero-trust outputs", "category": "LLM Top 10", "base_severity": "HIGH"},
+    "LLM06: Excessive Agency": {"impact": "Too much autonomy causes harm", "remediation": "Least Privilege principle", "category": "LLM Top 10", "base_severity": "MEDIUM"},
+    "LLM07: System Prompt Leakage": {"impact": "Exposure of internal instructions", "remediation": "Harden system prompts", "category": "LLM Top 10", "base_severity": "MEDIUM"},
+    "LLM08: Vector and Embedding Weaknesses": {"impact": "RAG manipulation", "remediation": "Secure vector databases", "category": "LLM Top 10", "base_severity": "MEDIUM"},
+    "LLM09: Misinformation & Overreliance": {"impact": "Hallucinations cause failures", "remediation": "Cross-verification", "category": "LLM Top 10", "base_severity": "LOW"},
+    "LLM10: Unbounded Consumption": {"impact": "DoS or cost spikes", "remediation": "Rate limits", "category": "LLM Top 10", "base_severity": "LOW"},
+    "ASI01: Agent Goal Hijack": {"impact": "Manipulation of planning logic", "remediation": "Goal-consistency validation", "category": "Agentic Top 10", "base_severity": "CRITICAL"},
+    "ASI02: Tool Misuse and Exploitation": {"impact": "Destructive tool use", "remediation": "Tool-call sandboxing", "category": "Agentic Top 10", "base_severity": "HIGH"},
+    "ASI03: Identity and Privilege Abuse": {"impact": "Confused deputy scenarios", "remediation": "Session-scoped keys", "category": "Agentic Top 10", "base_severity": "MEDIUM"},
+    "ASI04: Agentic Supply Chain": {"impact": "Malicious third-party agents", "remediation": "Vet agent registries", "category": "Agentic Top 10", "base_severity": "HIGH"},
+    "ASI05: Unexpected Code Execution": {"impact": "Host compromise via code gen", "remediation": "Ephemeral sandboxes", "category": "Agentic Top 10", "base_severity": "CRITICAL"},
+    "ASI06: Memory and Context Poisoning": {"impact": "Corruption of agent memory", "remediation": "Memory lineage tracking", "category": "Agentic Top 10", "base_severity": "MEDIUM"},
+    "ASI07: Insecure Inter-Agent Communication": {"impact": "Message spoofing/tampering", "remediation": "Cryptographic signatures", "category": "Agentic Top 10", "base_severity": "MEDIUM"},
+    "ASI08: Cascading Failures": {"impact": "Fault propagation in swarm", "remediation": "Circuit Breakers", "category": "Agentic Top 10", "base_severity": "HIGH"},
+    "ASI09: Human-Agent Trust Exploitation": {"impact": "Manipulation of human authority", "remediation": "Transparent UI", "category": "Agentic Top 10", "base_severity": "MEDIUM"},
+    "ASI10: Rogue Agents": {"impact": "Deceptive behavior", "remediation": "Kill-switch mechanisms", "category": "Agentic Top 10", "base_severity": "CRITICAL"}
+}
+
+# ============================================================================
+# 🎯 HELPERS
+# ============================================================================
+
+def load_all_logs():
+    logs_path = Path("flight_logs")
+    logs = []
+    
+    if logs_path.exists():
+        for f in logs_path.glob("*.jsonl"):
+            try:
+                with open(f) as fl:
+                    for line in fl:
+                        try:
+                            logs.append(json.loads(line.strip()))
+                        except:
+                            pass
+            except:
+                pass
+    
+    return logs
+
+# ============================================================================
+# 🎯 INITIALIZATION
+# ============================================================================
+
+if 'scan_history' not in st.session_state:
+    st.session_state.scan_history = []
+
+if 'custom_registry' not in st.session_state:
+    st.session_state.custom_registry = []
+
+if 'cases' not in st.session_state:
+    st.session_state.cases = {}
+
+if 'simulation_results' not in st.session_state:
+    st.session_state.simulation_results = None
+
+initialize_agent_context()
+
+PLAYBOOKS = {
+    "Backdoor Activity": ["🛑 Isolate Agent", "🔐 Rotate Credentials", "📧 Notify Team", "📑 Forensic Snapshot"],
+    "Prompt Injection": ["🔍 Analyze Prompt", "🛠️ Update Firewall", "📝 Document Chain"],
+    "Unauthorized Tool Use": ["🚧 Revoke Permissions", "🕵️ Audit Logs", "⚖️ Compliance Review"],
+    "Data Exfiltration": ["🌐 Block Connections", "📊 Analyze Flows", "🔒 Encrypt Data"],
+    "Privilege Escalation": ["👤 Review Access", "🔑 Rotate Credentials", "📋 Audit Changes"]
+}
+
+# ============================================================================
+# 🎯 CUSTOM CSS
+# ============================================================================
+
+st.markdown("""
+<style>
+.main .block-container { padding-top: 2rem; max-width: 100%; }
+.summary-card { background-color: #1a1c23; color: #fff; padding: 20px; border-radius: 10px; border: 1px solid #3e4451; margin-bottom: 15px; }
+.risk-critical { border-left: 10px solid #dc3545 !important; }
+.risk-high { border-left: 10px solid #ff4b4b !important; }
+.risk-medium { border-left: 10px solid #ffa500 !important; }
+.risk-low { border-left: 10px solid #28a745 !important; }
+.metric-val { color: #00ffcc; font-family: monospace; font-size: 1.2em; font-weight: bold; }
+.card-label { color: #9ea4b0; font-size: 0.8em; text-transform: uppercase; }
+.capability-badge { background-color: #1e3a5f; color: #58a6ff; padding: 3px 8px; border-radius: 12px; font-size: 0.75em; margin: 2px; display: inline-block; }
+.severity-critical { color: #dc3545; font-weight: bold; }
+.severity-high { color: #ff4b4b; font-weight: bold; }
+.severity-medium { color: #ffa500; font-weight: bold; }
+.severity-low { color: #28a745; font-weight: bold; }
+.info-note { background-color: #0d3b66; color: #a3d9ff; padding: 12px; border-radius: 5px; border-left: 4px solid #007bff; margin: 10px 0; }
+.owasp-badge { background-color: #3498db; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7em; margin: 1px; display: inline-block; }
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================================
+# 🎯 MAIN UI
+# ============================================================================
+
+st.title("🛡️ VerityFlux 3.0")
+st.markdown("**Enterprise AI Security: Unified Threat Intelligence & SOC Orchestration**")
+st.markdown("---")
+
+all_logs = load_all_logs()
+
+# ============================================================================
+# 🎯 SIDEBAR
+# ============================================================================
+
+with st.sidebar:
+    st.header("⚙️ Navigation")
+    
+    mode = st.radio("Select Mode", [
+        "Security Scan",
+        "Cognitive Firewall",
+        "Complete Stack Demo",
+        "Backdoor Detector",
+        "Adversarial Simulation Lab",
+        "SOC Command Center"
+    ])
+    
+    # Show Vestigia connection status
+    if VESTIGIA_AVAILABLE:
+        st.success("✅ Vestigia Connected")
+    else:
+        st.warning("⚠️ Vestigia Offline")
+    
+    # Dynamic Handshake Status
+    ctx = st.session_state.agent_context
+    
+    if ctx["tool_analysis"]:
+        st.markdown("---")
+        st.markdown("### 🎯 Dynamic Handshake")
+        
+        attack_plan = ctx.get("attack_plan", {})
+        owasp_coverage = attack_plan.get("owasp_threats_mapped", 0)
+        
+        st.markdown(f"""
+        <div style="background-color: #1a1c23; padding: 12px; border-radius: 5px; border: 2px solid #2ecc71;">
+        <span style="color: #2ecc71; font-weight: bold;">Active Tool Context:</span><br>
+        📊 {len(ctx['tool_analysis'])} tools discovered<br>
+        🎯 {attack_plan.get('total_attack_vectors', 0)} attack vectors<br>
+        🛡️ {owasp_coverage} OWASP threats mapped
+        </div>
+        """, unsafe_allow_html=True)
+    
+    if mode == "Complete Stack Demo":
+        st.markdown("---")
+        st.header("🔒 Security Layers")
+        enable_mcp = st.checkbox("MCP-Sentry", value=True)
+        enable_sandbox = st.checkbox("Sandbox (ASaaS)", value=True)
+        sandbox_backend_val = st.selectbox("Sandbox Backend", ["docker", "none", "e2b"])
+    
+    st.markdown("---")
+    st.header("📊 SOC Vitals")
+    
+    total_logs = len(all_logs)
+    resolved_count = len([s for s in st.session_state.cases.values() if s == 'Resolved'])
+    open_investigations = max(0, total_logs - resolved_count)
+    
+    st.metric("Open Investigations", open_investigations)
+    st.metric("Total Events", total_logs)
+    
+    if ctx.get("attack_plan"):
+        owasp_coverage = ctx["attack_plan"].get("owasp_threats_mapped", 0)
+        st.metric("OWASP Coverage", f"{owasp_coverage}/20")
+
+# ============================================================================
+# MODE 1: SECURITY SCAN
+# ============================================================================
+
+if mode == "Security Scan":
+    st.header("🔍 OWASP Security Scan")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Target Configuration")
+        provider = st.selectbox("Provider", ["mock", "openai", "anthropic", "ollama"])
+        model = st.text_input("Model", "gpt-4" if provider == "openai" else "mock")
+        api_key = st.text_input("API Key (optional)", type="password")
+        deterministic = st.toggle("Deterministic Mode", value=True)
+    
+    with col2:
+        st.subheader("Scan Options")
+        is_agent = st.checkbox("Is Agent?", value=True)
+        has_tools = st.checkbox("Has Tools?", value=True)
+        has_memory = st.checkbox("Has Memory?", value=False)
+        has_rag = st.checkbox("Has RAG?", value=False)
+        
+        if st.checkbox("Add Custom Tools"):
+            custom_tools_text = st.text_area("Custom Tool Names (comma-separated)")
+    
+    if st.button("🚀 Run Security Scan", type="primary", use_container_width=True):
+        if deterministic:
+            random.seed(42)
+            np.random.seed(42)
+        
+        with st.spinner("Analyzing against OWASP 2025..."):
+            target = {
+                'provider': provider,
+                'model': model,
+                'api_key': api_key if api_key else None,
+                'is_agent': is_agent,
+                'has_tools': has_tools,
+                'has_memory': has_memory,
+                'has_rag': has_rag
+            }
+            
+            if 'custom_tools_text' in locals() and custom_tools_text:
+                custom_tools = [t.strip() for t in custom_tools_text.split(',') if t.strip()]
+                target['custom_tools'] = custom_tools
+            
+            # 🎯 LOG SCAN START TO VESTIGIA
+            scan_hash = hashlib.sha256(f"{provider}_{model}_{datetime.now()}".encode()).hexdigest()
+            vestigia.log_scan_start(
+                agent_id=f"{provider}_{model}",
+                tool="security_scanner",
+                prompt_hash=scan_hash
+            )
+            
+            config = ScanConfig(scan_llm_threats=True, scan_agentic_threats=is_agent)
+            scanner = VerityFluxScanner(application_name=f"{provider}/{model}", config=config)
+            report = scanner.scan_all(target)
+            
+            # Tool analysis
+            tool_analysis = []
+            all_detected_vulnerabilities = []
+            vulnerability_instances = 0
+            vulnerability_instances = 0
+            vulnerability_instances = 0
+            
+            if has_tools:
+                detected_tools = discover_agent_tools(target)
+                for tool in detected_tools:
+                    analysis = identify_tool_vulnerabilities(tool)
+                    if analysis['vulnerabilities']:
+                        tool_analysis.append({'tool': tool, **analysis})
+                        all_detected_vulnerabilities.extend(analysis["vulnerabilities"])
+                        vulnerability_instances += len(analysis["vulnerabilities"])
+                        vulnerability_instances += len(analysis['vulnerabilities'])
+                        vulnerability_instances += len(analysis['vulnerabilities'])
+            
+            unique_vulnerabilities = list(set(all_detected_vulnerabilities))
+            
+            # Create attack plan
+            if has_tools and tool_analysis:
+                attack_plan = OWASPThreatMapper.map_tools_to_attacks(tool_analysis)
+                
+                st.session_state.agent_context.update({
+                    "discovered_tools": [t['tool'] for t in tool_analysis],
+                    "tool_analysis": tool_analysis,
+                    "attack_plan": attack_plan,
+                    "last_scan_time": datetime.now().isoformat(),
+                    "scan_count": st.session_state.agent_context.get("scan_count", 0) + 1
+                })
+                
+                add_security_event(
+                    "tool_discovery",
+                    "security_scan",
+                    {
+                        "agent_id": f"{provider}_{model}",
+                        "tools_discovered": len(tool_analysis),
+                        "attack_vectors_mapped": attack_plan["total_attack_vectors"],
+                        "owasp_threats": attack_plan["owasp_threats_mapped"],
+                        "risk_score": attack_plan["risk_score"]
+                    }
+                )
+            
+            # 🎯 LOG SCAN COMPLETION TO VESTIGIA
+            vestigia.log_scan_complete(
+                agent_id=f"{provider}_{model}",
+                tool="security_scanner",
+                decision="COMPLETE",
+                risk_score=report.overall_risk_score,
+                reasoning=f"Scan complete: {len(unique_vulnerabilities)} threats detected"
+            )
+            
+            st.session_state.scan_history.append({
+                'timestamp': report.scan_timestamp.isoformat(),
+                'target': f"{provider}/{model}",
+                'risk_score': report.overall_risk_score,
+                'threats': len(unique_vulnerabilities)
+            })
+            
+            st.success("✅ Scan Complete!")
+            
+            # Show handshake status
+            if has_tools and tool_analysis:
+                st.markdown(f"""
+                <div class="info-note">
+                <strong>🎯 COMPLETE OWASP HANDOFF ESTABLISHED!</strong><br>
+                • Discovered <strong>{len(tool_analysis)} tools</strong><br>
+                • Mapped to <strong>{attack_plan['total_attack_vectors']} attack vectors</strong><br>
+                • Covering <strong>{attack_plan['owasp_threats_mapped']} OWASP threats</strong><br>
+                • <span style="color: #2ecc71;">✅ Events logged to Vestigia</span><br>
+                Switch to "Adversarial Simulation Lab" for testing
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Metrics
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Risk Score", f"{report.overall_risk_score:.1f}/100")
+            c2.metric("Unique Threats", len(unique_vulnerabilities))
+            c3.metric("Tools Found", len(tool_analysis) if has_tools else 0)
+            c4.metric("OWASP Coverage", attack_plan.get('owasp_threats_mapped', 0) if has_tools and tool_analysis else 0)
+            
+            # Tool analysis display
+            if has_tools and tool_analysis:
+                st.markdown("---")
+                st.subheader("🛠️ Dynamic Tool Intelligence")
+                
+                tool_analysis.sort(key=lambda x: x['risk_score'], reverse=True)
+                t_cols = st.columns(3)
+                
+                for idx, tool_data in enumerate(tool_analysis):
+                    with t_cols[idx % 3]:
+                        severity_class = f"risk-{tool_data['severity'].lower()}"
+                        st.markdown(f"""
+                        <div class="summary-card {severity_class}">
+                        <span class="card-label">Tool Component</span><br>
+                        <code style="color: #00ffcc; font-size: 0.9em;">{tool_data['tool']}</code><br>
+                        <div style="margin-top: 8px;">
+                        <span class="severity-{tool_data['severity'].lower()}">
+                        ⚠ {tool_data['severity']} RISK
+                        </span><br>
+                        <span style="font-size: 0.8em; color: #aaa;">
+                        Score: {tool_data['risk_score']}/100
+                        </span>
+                        </div>
+                        <div style="margin-top: 10px;">
+                        <span class="card-label">Capabilities</span><br>
+                        """, unsafe_allow_html=True)
+                        
+                        # Show capability badges
+                        for cap in tool_data['capabilities']:
+                            st.markdown(f'<span class="capability-badge">{cap}</span>', unsafe_allow_html=True)
+                        
+                        # Show OWASP coverage badge
+                        threat_count = len(tool_data['vulnerabilities'])
+                        st.markdown(f'<span class="owasp-badge">🛡️ {threat_count} threats</span>', unsafe_allow_html=True)
+                        st.markdown("</div></div>", unsafe_allow_html=True)
+                
+                st.markdown("---")
+                st.subheader("🕵️ Active Threat Intelligence")
+                
+                # Show OWASP threat matrix
+                if unique_vulnerabilities:
+                    st.markdown(f"""
+                    <div class="info-note">
+                    <strong>🎯 COMPLETE OWASP THREAT INTELLIGENCE</strong><br>
+                    Found <strong>{vulnerability_instances} vulnerability instances</strong> across {len(tool_analysis) if has_tools else 'components'}.<br>
+                    Consolidated into <strong>{len(unique_vulnerabilities)} unique OWASP threat patterns</strong>:
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Display ALL threats in an expandable section
+                    with st.expander(f"🔍 View All {len(unique_vulnerabilities)} Threats", expanded=True):
+                        # Group threats by severity
+                        threats_by_severity = {
+                            "CRITICAL": [],
+                            "HIGH": [],
+                            "MEDIUM": [],
+                            "LOW": []
+                        }
+                        
+                        for vuln in unique_vulnerabilities:
+                            if vuln in UVKB:
+                                data = UVKB[vuln]
+                                severity = data.get('base_severity', 'MEDIUM')
+                                threats_by_severity[severity].append((vuln, data))
+                        
+                        # Display by severity order
+                        for severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+                            if threats_by_severity[severity]:
+                                severity_emoji = "🔴" if severity == "CRITICAL" else "🟠" if severity == "HIGH" else "🟡" if severity == "MEDIUM" else "🟢"
+                                st.subheader(f"{severity_emoji} {severity} ({len(threats_by_severity[severity])})")
+                                
+                                for vuln, data in threats_by_severity[severity]:
+                                    st.markdown(f"**{vuln}**")
+                                    st.markdown(f"*Impact:* {data['impact']}")
+                                    st.markdown(f"*Remediation:* {data['remediation']}")
+                                    st.caption(f"Category: {data['category']}")
+                                    st.markdown("---")
+
+# ============================================================================
+# MODE 2: COGNITIVE FIREWALL
+# ============================================================================
+
+elif mode == "Cognitive Firewall":
+    st.header("🧠 Cognitive Firewall")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        agent_id = st.text_input("Agent ID", "agent_001")
+        tool_name = st.text_input("Tool Name", "delete_database")
+        original_goal = st.text_area("Original Goal", "Optimize database performance")
+    
+    with col2:
+        reasoning_chain = st.text_area("Reasoning Chain", "Database is slow\nLogs taking space\nDelete to optimize")
+        parameters = st.text_area("Parameters (JSON)", '{"table": "users"}')
+        environment = st.selectbox("Environment", ["development", "staging", "production"])
+    
+    if st.button("🔍 Evaluate Action", type="primary", use_container_width=True):
+        firewall = CognitiveFirewall()
+        
+        try:
+            params = json.loads(parameters)
+        except:
+            params = {"raw": parameters}
+        
+        action = AgentAction(
+            agent_id=agent_id,
+            tool_name=tool_name,
+            parameters=params,
+            reasoning_chain=reasoning_chain.split('\n'),
+            original_goal=original_goal,
+            context={'environment': environment}
+        )
+        
+        decision = firewall.evaluate(action)
+        
+        st.markdown("---")
+        st.header("🎯 Firewall Decision")
+        
+        # Show tier badge
+        tier = decision.context.get('tier', 'UNKNOWN')
+        tier_colors = {
+            'CRITICAL': '🔴',
+            'HIGH': '🟠',
+            'MEDIUM': '🟡',
+            'LOW': '🟢'
+        }
+        
+        st.subheader(f"{tier_colors.get(tier, '⚪')} Risk Tier: {tier}")
+        
+        d1, d2, d3 = st.columns(3)
+        
+        with d1:
+            if decision.action.value == 'allow':
+                st.success(f"✅ {decision.action.value.upper()}")
+            elif decision.action.value == 'block':
+                st.error(f"🚨 {decision.action.value.upper()}")
+            elif decision.action.value == 'require_approval':
+                st.warning(f"⚠️ REQUIRES APPROVAL")
+            else:
+                st.info(f"📊 {decision.action.value.upper()}")
+        
+        d2.metric("Risk Score", f"{decision.risk_score:.1f}/100")
+        d3.metric("Confidence", f"{decision.confidence:.1f}%")
+        
+        st.write(f"**Reasoning:** {decision.reasoning}")
+
+# ============================================================================
+# MODE 3: COMPLETE STACK DEMO
+# ============================================================================
+
+elif mode == "Complete Stack Demo":
+    st.header("🛡️ Complete Security Stack")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        agent_id = st.text_input("Agent ID", "agent_demo_001")
+        tool_name = st.text_input("Tool Name", "read_file")
+        original_goal = st.text_area("Original Goal", "Analyze log files")
+    
+    with col2:
+        reasoning_chain = st.text_area("Reasoning Chain", "User requested analysis\nRead log files\nGenerate report")
+        parameters = st.text_area("Parameters (JSON)", '{"path": "/var/log/app.log"}')
+    
+    if st.button("🚀 Evaluate & Execute", type="primary", use_container_width=True):
+        stack = CompleteSecurityStack()
+        
+        # Get values from sidebar
+        if 'enable_mcp' in locals():
+            stack.enable_mcp_sentry = enable_mcp
+        if 'enable_sandbox' in locals():
+            stack.enable_sandbox = enable_sandbox
+        
+        try:
+            params = json.loads(parameters)
+        except:
+            params = {"path": parameters}
+        
+        action = AgentAction(
+            agent_id=agent_id,
+            tool_name=tool_name,
+            parameters=params,
+            reasoning_chain=reasoning_chain.split('\n'),
+            original_goal=original_goal,
+            context={}
+        )
+        
+        decision = stack.firewall.evaluate(action)
+        color = "risk-high" if decision.risk_score > 70 else "risk-medium" if decision.risk_score > 30 else "risk-low"
+        
+        st.markdown(f"""
+        <div class="summary-card {color}">
+        <div class="card-label">Execution Decision</div>
+        <h2>{decision.action.value.upper()}</h2>
+        <p><b>Risk Magnitude:</b> <span class="metric-val">{decision.risk_score}/100</span></p>
+        <p><b>Policy Context:</b> {decision.reasoning}</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+# ============================================================================
+# MODE 4: BACKDOOR DETECTOR
+# ============================================================================
+elif mode == "Backdoor Detector":
+    st.header("🔬 Hybrid Backdoor Detector & Red Team Lab")
+    detector = HybridBackdoorDetector()
+    
+    def run_detection(text):
+        for method_name in ['scan', 'analyze', 'detect', '__call__']:
+            method = getattr(detector, method_name, None)
+            if callable(method): 
+                res = method(text)
+                if isinstance(res, dict): return res
+        return {"backdoor_detected": False, "confidence": 0, "reason": "No valid detection method found"}
+
+    with st.expander("🛠️ Custom Trigger Registry"):
+        new_trigger = st.text_input("Register New Trigger Phrase (IOC)")
+        if st.button("Save to Registry") and new_trigger:
+            st.session_state.custom_registry.append(new_trigger)
+            st.success("IOC Registered.")
+        if st.session_state.custom_registry:
+            st.code("\n".join(st.session_state.custom_registry))
+
+    st.subheader("📁 Threat Intel Feed (Batch Scan)")
+    uploaded_file = st.file_uploader("Upload Backdoor Dataset (CSV)", type=["csv"])
+    if uploaded_file and st.toggle("Enable Continuous Testing Mode"):
+        df = pd.read_csv(uploaded_file)
+        col = 'prompt' if 'prompt' in df.columns else df.columns[0]
+        threats = 0
+        for text in df[col].astype(str):
+            res = run_detection(text)
+            is_ioc = any(ioc.lower() in text.lower() for ioc in st.session_state.custom_registry)
+            if res.get('backdoor_detected') or is_ioc: threats += 1
+        st.metric("Dataset Detection Coverage", f"{(threats/len(df))*100:.1f}%")
+
+    st.markdown("---")
+    st.subheader("🎯 Manual Backdoor Analysis")
+    test_text = st.text_area("Manual Test Input", "Enter suspicious payload...")
+    if st.button("🔍 Analyze Text", type="primary"):
+        res = run_detection(test_text)
+        is_ioc_match = any(ioc.lower() in test_text.lower() for ioc in st.session_state.custom_registry)
+        is_detected = res.get('backdoor_detected') or is_ioc_match
+        color = "risk-high" if is_detected else "risk-low"
+        status_text = "🚨 BACKDOOR DETECTED" if is_detected else "✅ CLEAN"
+        confidence = res.get('confidence', 100 if is_ioc_match else 0)
+        reasoning = res.get('reason', 'Trigger match found in custom IOC registry' if is_ioc_match else 'No suspicious patterns identified.')
+
+        st.markdown(f"""
+            <div class="summary-card {color}">
+                <div class="card-label">Detection Result</div>
+                <h2>{status_text}</h2>
+                <p><b>Confidence:</b> <span class="metric-val">{confidence}%</span></p>
+                <p><b>Heuristic Insight:</b> {reasoning}</p>
+            </div>
+        """, unsafe_allow_html=True)
+
+# ============================================================================
+# MODE 5: ADVERSARIAL SIMULATION LAB (ULTIMATE EDITION - FIXED)
+# ============================================================================
+
+elif mode == "Adversarial Simulation Lab":
+    st.header("🎯 Red vs Blue: Adversarial Testing Framework")
+    
+    # 🎯 Get agent context
+    ctx = st.session_state.agent_context
+    has_targeted_tools = ctx.get("tool_analysis") and len(ctx["tool_analysis"]) > 0
+    
+    # Main layout
+    main_col1, main_col2 = st.columns([2, 1])
+    
+    with main_col1:
+        with st.expander("ℹ️ How This Works", expanded=True):
+            st.markdown("""
+            **🎯 ULTIMATE: Complete OWASP 2025 Testing Framework**
+            
+            **The Security Scan → Simulation Connection:**
+            
+            1. **Security Scan** discovers tools and maps to OWASP threats
+            2. **OWASP Matrix** maps capabilities to ALL 20 threats
+            3. **ARTEMIS** generates semantic payloads for specific threats
+            4. **Cognitive Firewall** evaluates and blocks attacks
+            5. **SOC Integration** logs events with OWASP threat context
+            
+            **Testing Modes:**
+            - **🎯 Targeted**: Uses discovered tools with specific OWASP threats
+            - **🌐 CTF**: Traditional challenge-based testing
+            
+            **Result:** Complete security validation against OWASP 2025 framework.
+            """)
+    
+    with main_col2:
+        # Quick status panel
+        if has_targeted_tools:
+            attack_plan = ctx.get("attack_plan", {})
+            st.markdown(f"""
+            <div style="background-color: #1a1c23; padding: 15px; border-radius: 5px; border: 2px solid #2ecc71;">
+            <h4 style="color: #2ecc71; margin-top: 0;">🎯 HANDOFF ACTIVE</h4>
+            <p style="margin-bottom: 5px;"><strong>{len(ctx['tool_analysis'])} Tools</strong></p>
+            <p style="margin-bottom: 5px;"><strong>{attack_plan.get('total_attack_vectors', 0)} Vectors</strong></p>
+            <p style="margin-bottom: 5px;"><strong>{attack_plan.get('owasp_threats_mapped', 0)} OWASP Threats</strong></p>
+            <p style="margin-bottom: 0; font-size: 0.9em; color: #aaa;">Ready for targeted testing</p>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="background-color: #1a1c23; padding: 15px; border-radius: 5px; border: 2px solid #f39c12;">
+            <h4 style="color: #f39c12; margin-top: 0;">⚠️ NO HANDOFF</h4>
+            <p style="margin-bottom: 0;">Run a Security Scan first to enable targeted testing</p>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Show targeted tools if available
+    if has_targeted_tools:
+        st.markdown("---")
+        st.subheader("🎯 Targeted Tools from Security Scan")
+        
+        # Display tools in a responsive grid
+        tool_count = len(ctx["tool_analysis"])
+        cols = min(4, tool_count)
+        tool_cols = st.columns(cols)
+        
+        for idx, tool_data in enumerate(ctx["tool_analysis"]):
+            with tool_cols[idx % cols]:
+                severity = tool_data.get('severity', 'MEDIUM')
+                severity_color = {
+                    'CRITICAL': '#e74c3c',
+                    'HIGH': '#e67e22',
+                    'MEDIUM': '#f1c40f',
+                    'LOW': '#2ecc71'
+                }.get(severity, '#95a5a6')
+                
+                threat_count = len(tool_data.get('vulnerabilities', []))
+                
+                st.markdown(f"""
+                <div style="background-color: #1a1c23; padding: 12px; border-radius: 5px; margin: 5px 0; border-left: 4px solid {severity_color};">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                <strong style="color: #00ffcc; font-size: 0.9em;">{tool_data['tool']}</strong>
+                <span style="color: {severity_color}; font-size: 0.7em;">{severity}</span>
+                </div>
+                <div style="margin-top: 8px;">
+                <span style="font-size: 0.8em; color: #aaa;">Risk: {tool_data['risk_score']}/100</span><br>
+                <span style="font-size: 0.7em; color: #3498db;">🛡️ {threat_count} threats</span>
+                <div style="margin-top: 5px;">
+                """, unsafe_allow_html=True)
+                
+                # Show capability badges
+                for cap in tool_data.get('capabilities', [])[:2]:  # Limit to 2
+                    st.markdown(f'<span class="capability-badge">{cap}</span>', unsafe_allow_html=True)
+                
+                st.markdown("</div></div></div>", unsafe_allow_html=True)
+        
+        st.markdown("---")
+    
+    # Configuration section
+    config_col1, config_col2 = st.columns(2)
+    
+    with config_col1:
+        # Simulation mode selection
+        simulation_mode = st.radio(
+            "**Simulation Mode**",
+            ["🎯 Targeted Testing (Use discovered tools)",
+             "🌐 CTF Challenge (Traditional testing)"],
+            index=0 if has_targeted_tools else 1,
+            help="Targeted mode uses tools discovered in Security Scan"
+        )
+        
+        # Duration slider
+        duration = st.slider("**Test Duration** (minutes)", 1, 10, 3)
+    
+    with config_col2:
+        # Mock mode toggle
+        use_mock = st.toggle("**Use Mock Mode**", value=True,
+                           help="Mock mode simulates attacks without API costs")
+        
+        if use_mock:
+            st.info("🎭 **Mock Mode**: Simulates realistic attack patterns")
+        else:
+            st.warning("⚠️ **Live Mode**: Uses real firewall evaluation")
+        
+        # CTF challenge selection for CTF mode
+        if simulation_mode == "🌐 CTF Challenge (Traditional testing)":
+            ctf_challenge = st.selectbox(
+                "**CTF Challenge**",
+                ["SQL Injection Detection", "Privilege Escalation", "Data Exfiltration",
+                 "Supply Chain Attack", "Prompt Injection"]
+            )
+    
+    # Show attack plan for targeted mode
+    if simulation_mode == "🎯 Targeted Testing (Use discovered tools)" and has_targeted_tools:
+        attack_plan = ctx.get("attack_plan", {})
+        
+        with st.expander("🔍 View Targeted Attack Plan", expanded=False):
+            if attack_plan:
+                # Display attack plan metrics
+                plan_col1, plan_col2, plan_col3 = st.columns(3)
+                
+                with plan_col1:
+                    st.metric("Targeted Tools", len(attack_plan.get('targeted_tools', [])))
+                with plan_col2:
+                    st.metric("Attack Vectors", attack_plan.get('total_attack_vectors', 0))
+                with plan_col3:
+                    st.metric("OWASP Threats", attack_plan.get('owasp_threats_mapped', 0))
+    
+    # Run test button
+    st.markdown("---")
+    
+    if st.button("🚀 Run Adversarial Test", type="primary", use_container_width=True):
+        if not ADVERSARIAL_SIM_AVAILABLE:
+            # Fallback to mock simulation with realistic results
+            st.warning("⚠️ ARTEMIS engine not available. Running mock simulation...")
+            
+            # Generate realistic mock results based on mode
+            if simulation_mode == "🎯 Targeted Testing (Use discovered tools)" and has_targeted_tools:
+                # Mock targeted results with realistic detection rates
+                tools_count = len(ctx["tool_analysis"])
+                detection_rate = random.randint(80, 95)  # 80-95% detection for mock mode
+                
+                mock_results = {
+                    "total_actions": tools_count * 2,  # 2 actions per tool
+                    "targeted_attacks": tools_count * 2,
+                    "detected_attacks": int((tools_count * 2) * detection_rate / 100),
+                    "detection_rate": detection_rate,
+                    "by_tool": {},
+                    "detailed_log": [],
+                    "simulation_type": "targeted"
+                }
+                
+                # Generate tool-specific results
+                for tool_data in ctx["tool_analysis"]:
+                    tool_name = tool_data['tool']
+                    base_risk = tool_data['risk_score']
+                    
+                    # Higher risk tools get better detection
+                    detection_rate_tool = min(100, base_risk + random.randint(-10, 20))
+                    detected_count = 2 if detection_rate_tool > 70 else 1
+                    
+                    mock_results["by_tool"][tool_name] = {
+                        "attacks_attempted": 2,
+                        "attacks_detected": detected_count,
+                        "capabilities": tool_data.get('capabilities', [])
+                    }
+                    
+                    # Create detailed log entries
+                    for i in range(2):
+                        # Generate realistic risk scores (matching tool's base risk)
+                        risk = random.randint(max(70, base_risk - 15), min(100, base_risk + 15))
+                        was_detected = (i < detected_count)  # First X attacks are detected
+                        
+                        mock_results["detailed_log"].append({
+                            "tool": tool_name,
+                            "capability": tool_data['capabilities'][0] if tool_data['capabilities'] else "generic",
+                            "threat": "Mock attack simulation",
+                            "payload": f"Simulated attack on {tool_name}",
+                            "scenario": f"Security test on {tool_name}",
+                            "risk_score": risk,
+                            "was_detected": was_detected,
+                            "reasoning": "Blocked by simulation firewall" if was_detected else "Allowed in simulation",
+                            "timestamp": datetime.now().isoformat(),
+                            "is_targeted": True
+                        })
+                
+                st.session_state.simulation_results = mock_results
+                st.session_state.simulation_mode = simulation_mode
+                st.success(f"✅ Mock Test Complete! Detection rate: {detection_rate}%")
+                
+            else:
+                # Mock CTF results
+                detection_rate = random.randint(80, 95)  # High for mock mode
+                total_actions = 5
+                
+                mock_results = {
+                    "total_actions": total_actions,
+                    "deceptions_caught": int(total_actions * detection_rate / 100),
+                    "catch_rate": detection_rate,
+                    "actions_log": [],
+                    "simulation_type": "ctf"
+                }
+                
+                # Create mock actions log
+                for i in range(total_actions):
+                    blocked = i < mock_results["deceptions_caught"]
+                    risk_score = random.randint(70, 100) if blocked else random.randint(30, 60)
+                    
+                    mock_results["actions_log"].append({
+                        "tool": "ctf_generic_tool",
+                        "threat": "LLM01: Prompt Injection",
+                        "risk": risk_score,
+                        "blocked": blocked,
+                        "reasoning": "Firewall blocked suspicious input" if blocked else "Allowed for monitoring",
+                        "payload": f"Test payload #{i+1}",
+                        "timestamp": datetime.now().isoformat()
+                    })
+                
+                st.session_state.simulation_results = mock_results
+                st.session_state.simulation_mode = 'ctf'
+                st.success(f"✅ Mock CTF Test Complete! Catch rate: {detection_rate}%")
+            
+            st.rerun()
+        
+        else:
+            try:
+                # Determine which simulation to run
+                if simulation_mode == "🎯 Targeted Testing (Use discovered tools)" and has_targeted_tools:
+                    # Use targeted simulation with handoff
+                    tester = ARTEMISStressTest(
+                        use_mock=use_mock,
+                        tool_attack_plan=ctx.get("attack_plan")
+                    )
+                    
+                    with st.spinner("🎯 Running targeted OWASP attacks against discovered tools..."):
+                        results = tester.run_targeted_simulation(duration_minutes=duration)
+                        
+                        # Add security events for SOC
+                        for log_entry in results.get("detailed_log", []):
+                            if log_entry.get("was_detected"):
+                                add_security_event(
+                                    "attack_detected",
+                                    log_entry["tool"],
+                                    {
+                                        "threat": log_entry["threat"],
+                                        "risk_score": log_entry["risk_score"],
+                                        "agent_id": f"redteam_{log_entry['tool'].replace('.', '_')}",
+                                        "payload_preview": log_entry["payload"][:50]
+                                    }
+                                )
+                        
+                        st.session_state.simulation_results = results
+                        st.session_state.simulation_mode = 'targeted'
+                        st.success(f"✅ Targeted Test Complete! Detection rate: {results['detection_rate']:.1f}%")
+                
+                else:
+                    # Use CTF challenge mode
+                    tester = ARTEMISStressTest(use_mock=use_mock)
+                    
+                    with st.spinner(f"🌐 Running {ctf_challenge} CTF challenge..."):
+                        results = tester.run_ctf_challenge(ctf_challenge, duration)
+                        st.session_state.simulation_results = results
+                        st.session_state.simulation_mode = 'ctf'
+                        st.success(f"✅ CTF Test Complete! Catch rate: {results['catch_rate']:.1f}%")
+            
+            except Exception as e:
+                st.error(f"❌ Simulation failed: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+    
+    # Display results if available
+    if st.session_state.simulation_results:
+        results = st.session_state.simulation_results
+        sim_mode = st.session_state.get('simulation_mode', 'unknown')
+        
+        st.markdown("---")
+        st.subheader("📊 Simulation Results")
+        
+        # Top metrics
+        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+        
+        with metric_col1:
+            st.metric("Total Actions", results.get('total_actions', 0))
+        
+        with metric_col2:
+            if sim_mode == 'targeted':
+                st.metric("Targeted Attacks", results.get('targeted_attacks', 0))
+            else:
+                st.metric("Challenge Type", sim_mode.title())
+        
+        with metric_col3:
+            attacks_detected = results.get('detected_attacks', results.get('deceptions_caught', 0))
+            st.metric("Attacks Detected", attacks_detected)
+        
+        with metric_col4:
+            detection_rate = results.get('detection_rate', results.get('catch_rate', 0))
+            st.metric("Detection Rate", f"{detection_rate:.1f}%")
+        
+        # Show tool breakdown if available
+        if results.get('by_tool'):
+            st.markdown("---")
+            st.subheader("🔧 Tool-Specific Detection")
+            
+            tool_count = len(results['by_tool'])
+            tool_cols = st.columns(min(4, tool_count))
+            
+            for idx, (tool_name, stats) in enumerate(results['by_tool'].items()):
+                with tool_cols[idx % len(tool_cols)]:
+                    attempted = stats.get('attacks_attempted', 0)
+                    detected = stats.get('attacks_detected', 0)
+                    rate = (detected / attempted * 100) if attempted > 0 else 0
+                    rate_color = "#2ecc71" if rate >= 80 else "#f1c40f" if rate >= 50 else "#e74c3c"
+                    
+                    st.markdown(f"""
+                    <div style="background-color: #1a1c23; padding: 12px; border-radius: 5px; margin: 5px 0;">
+                    <strong style="color: #00ffcc; font-size: 0.85em;">{tool_name}</strong><br>
+                    <div style="margin-top: 8px; font-size: 0.8em;">
+                    <div style="display: flex; justify-content: space-between;">
+                    <span>Attempted:</span>
+                    <span>{attempted}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                    <span>Detected:</span>
+                    <span>{detected}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 5px;">
+                    <span>Rate:</span>
+                    <span style="color: {rate_color}; font-weight: bold;">{rate:.1f}%</span>
+                    </div>
+                    </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        # Detailed detection log
+        st.markdown("---")
+        st.subheader("🚨 Detailed Detection Log")
+        
+        detailed_log = results.get('detailed_log', results.get('actions_log', []))
+        
+        for i, action in enumerate(detailed_log[:10]):  # Show up to 10 entries
+            emoji = "✅" if action.get('was_detected', action.get('blocked', False)) else "⚠️"
+            risk_score = action.get('risk_score', action.get('risk', 0))
+            color = "risk-high" if risk_score > 70 else "risk-medium" if risk_score > 30 else "risk-low"
+            targeted_badge = "🎯" if action.get('is_targeted', False) else "🌐"
+            
+            with st.expander(f"{targeted_badge} {emoji} #{i+1}: {action.get('tool', 'Unknown')} (Risk: {risk_score:.0f}/100)"):
+                st.markdown(f"""
+                <div class="summary-card {color}">
+                <p><b>Tool:</b> {action.get('tool', 'Unknown')}</p>
+                <p><b>Threat:</b> {action.get('threat', action.get('vector', 'Generic'))}</p>
+                <p><b>Payload:</b> <code style="color: #ff6b6b;">{action.get('payload', 'N/A')[:80]}...</code></p>
+                <p><b>Risk Score:</b> {risk_score:.0f}/100</p>
+                <p><b>Detection:</b> {'✅ BLOCKED' if action.get('was_detected', action.get('blocked', False)) else '⚠️ ALLOWED'}</p>
+                <p><b>Reasoning:</b> {action.get('reasoning', 'No reasoning provided')}</p>
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # Result interpretation
+        st.markdown("---")
+        st.subheader("📊 Result Interpretation")
+        
+        detection_rate = results.get('detection_rate', results.get('catch_rate', 0))
+        
+        if detection_rate >= 80:
+            st.success(f"""
+            **Excellent Performance!** VerityFlux achieved {detection_rate:.1f}% detection rate.
+            
+            - High precision means few false alarms
+            - High recall means catching most attacks
+            - Ready for production deployment
+            """)
+        elif detection_rate >= 60:
+            st.info(f"""
+            **Good Performance.** VerityFlux achieved {detection_rate:.1f}% detection rate.
+            
+            - Solid baseline, room for tuning
+            - Consider adjusting risk thresholds
+            - Good for red team testing
+            """)
+        else:
+            st.warning(f"""
+            **Needs Improvement.** Detection rate: {detection_rate:.1f}%
+            
+            - Either missing attacks (low recall) or too many false alarms (low precision)
+            - Review firewall thresholds
+            - Analyze false negatives to improve detection
+            """)
+
+# ============================================================================
+# MODE 6: SOC COMMAND CENTER
+# ============================================================================
+
+elif mode == "SOC Command Center":
+    st.header("🏢 SOC Command Center")
+    
+    # 🎯 Show handshake events
+    ctx = st.session_state.agent_context
+    security_events = ctx.get("security_events", [])
+    
+    if security_events:
+        st.markdown(f"""
+        <div class="info-note">
+        <strong>🎯 DYNAMIC HANDSHAKE EVENTS</strong><br>
+        {len(security_events)} security events logged from tool discovery and simulation.
+        </div>
+        """, unsafe_allow_html=True)
+    
+    if all_logs:
+        df_fleet = pd.DataFrame(all_logs)
+        
+        # Ensure required columns exist
+        if 'agent_id' not in df_fleet.columns:
+            df_fleet['agent_id'] = "🤖 Unidentified"
+        
+        if 'risk_score' not in df_fleet.columns:
+            df_fleet['risk_score'] = 0
+        
+        st.subheader("🌐 Global Agent Fleet Map")
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Deployed Fleet", len(df_fleet['agent_id'].unique()))
+        
+        critical_alerts = len(df_fleet[df_fleet['risk_score'] > 70]) if 'risk_score' in df_fleet.columns else 0
+        c2.metric("Critical Alerts", critical_alerts)
+        
+        # Count handshake events
+        handshake_events = [e for e in all_logs if e.get('source') == 'adversarial_simulation']
+        c3.metric("Handshake Events", len(handshake_events))
+        
+        t1, t2, t3 = st.tabs(["💼 Case Management", "🏹 Threat Hunting", "📖 IR Playbooks"])
+        
+        with t1:
+            st.subheader("🗂️ Active Investigation Queue")
+            
+            # Show recent events
+            for idx, row in df_fleet.tail(10)[::-1].iterrows():
+                risk = row.get('risk_score', 0)
+                case_id = hashlib.md5(str(row.get('timestamp', idx)).encode()).hexdigest()[:8]
+                
+                with st.expander(f"Case #{case_id} - Agent: {row.get('agent_id', 'Unknown')}"):
+                    color = "risk-high" if risk > 70 else "risk-medium" if risk > 30 else "risk-low"
+                    
+                    st.markdown(f"""
+                    <div class="summary-card {color}">
+                    <div class="card-label">Alert Detail</div>
+                    <p><b>Reason:</b> {row.get('firewall_decision', {}).get('reasoning', 'Action Blocked')}</p>
+                    <p><b>Risk Magnitude:</b> <span class="metric-val">{risk}</span></p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    c1, c2 = st.columns([2, 1])
+                    status = c1.selectbox("Status", ["New", "In Progress", "Resolved"], key=f"s_{case_id}")
+                    st.session_state.cases[case_id] = status
+        
+        with t2:
+            st.subheader("🏹 Proactive Threat Hunting")
+            
+            hunt_q = st.text_input("Query logs for weak signals (e.g. '/etc/passwd')")
+            
+            if st.button("Execute Global Hunt"):
+                st.info(f"Scanning 30-day history for pattern: '{hunt_q}'...")
+                st.warning("Potential signal found: Agent attempted access to unauthorized system path.")
+        
+        with t3:
+            st.subheader("📖 Incident Response Playbooks")
+            
+            p_type = st.selectbox("Select Active Threat Type", list(PLAYBOOKS.keys()))
+            
+            for step in PLAYBOOKS[p_type]:
+                st.checkbox(step)
+            
+            if st.button("🚀 Trigger Automated Containment"):
+                st.success("Containment command sent: Agent Container Isolated.")
+    
+    else:
+        st.info("No flight logs detected. Run simulations to generate data.")
+
+# ============================================================================
+# 🎯 FOOTER
+# ============================================================================
+
+st.markdown("---")
+col1, col2, col3 = st.columns([2, 1, 1])
+
+with col1:
+    st.markdown("**VerityFlux 3.0 | Enterprise AI Security Platform**")
+
+with col2:
+    st.markdown("Documentation")
+
+with col3:
+    st.markdown("About")

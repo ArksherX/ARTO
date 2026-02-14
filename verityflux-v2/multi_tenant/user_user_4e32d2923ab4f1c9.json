@@ -1,0 +1,10 @@
+{
+  "user_id": "user_4e32d2923ab4f1c9",
+  "email": "admin@testcompany.com",
+  "tenant_id": "test_company_73dd0a6e",
+  "role": "admin",
+  "created_at": "2026-01-27T12:40:05.382271",
+  "last_login": null,
+  "is_active": true,
+  "password_hash": "dda69783f28fdf6f1c5a83e8400f2472e9300887d1dffffe12a07b92a3d0aa25"
+}

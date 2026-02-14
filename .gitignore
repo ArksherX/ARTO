@@ -1,0 +1,15 @@
+.env
+.env.*
+*.key
+*.pem
+*.log
+__pycache__/
+venv/
+.venv/
+ARTEMIS/
+ARTEMIS/
+vestigia/data/anchors/
+vestigia/vault_anchors/
+vestigia/web_ui/vestigia_anchors/
+vestigia/vestigia_anchors/
+vestigia/test_anchors/

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vestigia-config
+data:
+  VESTIGIA_LEDGER_PATH: "/data/vestigia_ledger.json"
+  VESTIGIA_MULTI_TENANT: "true"
+  VESTIGIA_API_BASE: "http://vestigia-api"
+  VESTIGIA_BLOCKCHAIN_PROVIDER: "file"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vestigia-secrets
+type: Opaque
+stringData:
+  VESTIGIA_API_KEY: ""
+  VESTIGIA_PLATFORM_ADMIN_KEY: "change-me"
+  VESTIGIA_DB_DSN: ""

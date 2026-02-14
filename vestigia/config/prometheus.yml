@@ -1,0 +1,92 @@
+###############################################################################
+# Vestigia - Prometheus Configuration
+###############################################################################
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+
+  external_labels:
+    cluster: vestigia-production
+    environment: production
+
+# Alertmanager integration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+      timeout: 10s
+
+# Rule files
+rule_files:
+  - /etc/prometheus/alert-rules.yml
+
+# Scrape configurations
+scrape_configs:
+  # Vestigia API server metrics
+  - job_name: vestigia-api
+    metrics_path: /metrics
+    scrape_interval: 10s
+    static_configs:
+      - targets:
+          - vestigia-api:8000
+        labels:
+          service: vestigia-api
+          component: core
+
+  # OpenTelemetry Collector self-metrics
+  - job_name: otel-collector
+    metrics_path: /metrics
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - otel-collector:8888
+        labels:
+          service: otel-collector
+          component: observability
+
+  # OTel Collector exported metrics (from applications)
+  - job_name: otel-collector-exported
+    metrics_path: /metrics
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - otel-collector:8889
+        labels:
+          service: otel-collector-exported
+          component: observability
+
+  # Prometheus self-monitoring
+  - job_name: prometheus
+    metrics_path: /metrics
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - localhost:9090
+        labels:
+          service: prometheus
+          component: observability
+
+  # Node exporter (optional, for host-level metrics)
+  - job_name: node-exporter
+    metrics_path: /metrics
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - node-exporter:9100
+        labels:
+          service: node-exporter
+          component: infrastructure
+
+  # Alertmanager metrics
+  - job_name: alertmanager
+    metrics_path: /metrics
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - alertmanager:9093
+        labels:
+          service: alertmanager
+          component: observability

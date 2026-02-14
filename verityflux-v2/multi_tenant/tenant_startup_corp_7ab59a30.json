@@ -1,0 +1,14 @@
+{
+  "tenant_id": "startup_corp_7ab59a30",
+  "name": "Startup Corp",
+  "created_at": "2026-01-27T12:38:41.096601",
+  "is_active": true,
+  "max_agents": 100,
+  "max_users": 10,
+  "features": [
+    "intent_analysis",
+    "vulnerability_db",
+    "hitl"
+  ],
+  "config": {}
+}

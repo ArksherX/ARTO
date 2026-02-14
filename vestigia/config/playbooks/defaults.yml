@@ -1,0 +1,29 @@
+- name: compromised_agent
+  description: "High-risk anomaly detected. Contain and alert."
+  trigger:
+    min_risk: 90
+  steps:
+    - revoke_tokens
+    - isolate_agent
+    - snapshot_state
+    - alert_security
+    - open_incident
+
+- name: data_exfiltration
+  description: "Large data transfer or suspicious access volume."
+  trigger:
+    action_type: DATA_EXPORT
+    min_risk: 70
+  steps:
+    - block_network
+    - snapshot_state
+    - alert_security
+
+- name: integrity_violation
+  description: "Hash chain integrity anomaly or critical status."
+  trigger:
+    status: CRITICAL
+  steps:
+    - activate_killswitch
+    - alert_security
+    - open_incident

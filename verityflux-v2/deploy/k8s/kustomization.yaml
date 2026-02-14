@@ -1,0 +1,55 @@
+# =============================================================================
+# VerityFlux Enterprise - Kustomization
+# =============================================================================
+#
+# Deploy with: kubectl apply -k deploy/k8s/
+#
+# For different environments, create overlays:
+#   deploy/k8s/overlays/dev/
+#   deploy/k8s/overlays/staging/
+#   deploy/k8s/overlays/prod/
+#
+# Then: kubectl apply -k deploy/k8s/overlays/prod/
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: verityflux
+
+# Common labels
+commonLabels:
+  app.kubernetes.io/name: verityflux
+  app.kubernetes.io/version: "3.5.0"
+  app.kubernetes.io/managed-by: kustomize
+
+# Resources to include
+resources:
+  - 01-namespace-config.yaml
+  - 02-secrets.yaml
+  - 03-postgres.yaml
+  - 04-redis.yaml
+  - 05-api.yaml
+  - 06-ui.yaml
+  - 07-worker.yaml
+  - 08-ingress.yaml
+
+# Image customization (override in overlays)
+images:
+  - name: verityflux/api
+    newTag: "3.5.0"
+  - name: verityflux/ui
+    newTag: "3.5.0"
+  - name: verityflux/worker
+    newTag: "3.5.0"
+
+# ConfigMap generator (alternative to static configmaps)
+# configMapGenerator:
+#   - name: verityflux-config
+#     envs:
+#       - .env
+
+# Secret generator (alternative to static secrets)
+# secretGenerator:
+#   - name: verityflux-secrets
+#     envs:
+#       - .env.secret

@@ -1,0 +1,22 @@
+DEMO VIDEO BACKUP SCRIPT:
+(In case live demos fail)
+
+Video 1: VerityFlux Full Scan (2 minutes)
+- Terminal recording showing complete scan
+- Risk score calculation
+- Threat detection breakdown
+
+Video 2: Goal Hijacking Exploit (90 seconds)
+- Agent reasoning chain
+- Semantic drift visualization
+- Successful compromise
+
+Video 3: Cognitive Firewall Block (90 seconds)
+- Same attack attempt
+- Firewall evaluation
+- Real-time blocking with explanation
+
+Video 4: Production Integration (60 seconds)
+- GitHub Actions workflow
+- Automated security gate
+- Pass/fail criteria

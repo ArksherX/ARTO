@@ -1,0 +1,14 @@
+{
+  "tenant_id": "freetier_corp_e071342f",
+  "name": "FreeTier Corp",
+  "created_at": "2026-01-27T12:40:05.391434",
+  "is_active": true,
+  "max_agents": 100,
+  "max_users": 10,
+  "features": [
+    "vulnerability_db",
+    "intent_analysis",
+    "hitl"
+  ],
+  "config": {}
+}

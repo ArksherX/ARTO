@@ -1,0 +1,44 @@
+SLIDE-BY-SLIDE OUTLINE:
+
+Slide 1: Title
+"From Prompt Injection to Goal Hijacking: Red Teaming the Autonomous AI Workforce"
+- Speaker info
+- DEF CON Singapore 2026
+
+Slides 2-5: The Autonomous AI Workforce
+- Statistics: 71% organizations using GenAI, 18% can fix vulnerabilities
+- Real deployments: LangChain, AutoGPT, Microsoft Copilot
+- Agency Debt concept
+
+Slides 6-10: Threat Evolution
+- OWASP LLM Top 10 (2025) summary
+- OWASP Agentic AI Top 10 (2026) deep dive
+- Goal hijacking demonstration
+- 50% baseline failure rate
+
+Slides 11-20: VerityFlux 2.0 Framework
+- Architecture diagram
+- 20/20 OWASP detectors
+- Live demo: Security scan
+- Detection techniques (with code examples)
+
+Slides 21-28: Cognitive Firewall
+- Runtime protection architecture
+- Intent/Permission/Impact validation
+- Live demo: Blocking attacks
+- Flight Recorder compliance
+
+Slides 29-35: Advanced Scenarios
+- Multi-agent attacks
+- Supply chain vulnerabilities
+- Adversarial self-play
+
+Slides 36-40: Production Deployment
+- CI/CD integration
+- Web interfaces
+- Case studies with metrics
+
+Slides 41-45: Future & Conclusion
+- 2026 predictions
+- Open source contribution
+- Q&A

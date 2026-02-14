@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+venv/
+*.egg-info/
+
+# Logs
+*.log
+flight_logs/
+*.jsonl
+audit_export_*.json
+
+# IDE
+.vscode/
+.idea/
+
+# API keys
+.env
+*.key
+
+# OS
+.DS_Store

@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "verityflux"
+version = "3.5.0"
+description = "Enterprise AI Security Platform - Behavioral Firewall for AI Agents"
+readme = "README.md"
+license = {text = "Proprietary"}
+requires-python = ">=3.10"
+authors = [
+    {name = "VerityFlux Team"}
+]
+keywords = ["ai", "security", "llm", "agents", "firewall", "hitl"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.22.0",
+    "pydantic>=2.0.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.11.0",
+    "pyjwt>=2.8.0",
+    "passlib>=1.7.4",
+    "bcrypt>=4.0.0",
+    "httpx>=0.24.0",
+    "redis>=4.5.0",
+    "python-multipart>=0.0.6",
+    "python-dotenv>=1.0.0",
+    "tenacity>=8.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+]
+langchain = [
+    "langchain>=0.1.0",
+]
+autogen = [
+    "pyautogen>=0.2.0",
+]
+crewai = [
+    "crewai>=0.1.0",
+]
+redteam = [
+    "adversarial-robustness-toolbox>=1.15.0",
+    "garak>=0.9.0",
+    "textattack>=0.3.0",
+]
+
+[project.urls]
+Homepage = "https://verityflux.io"
+Documentation = "https://docs.verityflux.io"
+Repository = "https://github.com/verityflux/verityflux"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "api*", "sdk*", "redteam*", "ui*", "tests*", "cognitive_firewall*", "detectors*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true

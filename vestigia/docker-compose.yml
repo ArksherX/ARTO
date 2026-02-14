@@ -1,0 +1,328 @@
+version: '3.8'
+
+services:
+  # ─────────────────────────────────────────────
+  # Core Services
+  # ─────────────────────────────────────────────
+
+  vestigia-db:
+    image: postgres:15-alpine
+    container_name: vestigia-db
+    environment:
+      POSTGRES_DB: vestigia
+      POSTGRES_USER: vestigia
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - vestigia-db-data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vestigia -d vestigia"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - vestigia-network
+
+  vestigia-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: vestigia-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      vestigia-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DB_DSN=postgresql://vestigia:${DB_PASSWORD}@vestigia-db:5432/vestigia
+      - VESTIGIA_API_KEY=${VESTIGIA_API_KEY}
+      - VESTIGIA_SECRET_SALT=${VESTIGIA_SECRET_SALT}
+      - REDIS_URL=redis://redis:6379/0
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - VESTIGIA_MODE=production
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+      - ./logs:/app/logs
+    restart: unless-stopped
+    mem_limit: 1g
+    cpus: 2.0
+    networks:
+      - vestigia-network
+
+  vestigia-watchtower:
+    build:
+      context: .
+      dockerfile: Dockerfile.watchtower
+    container_name: vestigia-watchtower
+    depends_on:
+      - vestigia-api
+    environment:
+      - DB_DSN=postgresql://vestigia:${DB_PASSWORD}@vestigia-db:5432/vestigia
+      - VESTIGIA_API_KEY=${VESTIGIA_API_KEY}
+      - VESTIGIA_SECRET_SALT=${VESTIGIA_SECRET_SALT}
+      - REDIS_URL=redis://redis:6379/0
+      - VESTIGIA_MODE=production
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - vestigia-network
+
+  vestigia-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: vestigia-dashboard
+    ports:
+      - "8503:8501"
+    depends_on:
+      - vestigia-api
+    environment:
+      - VESTIGIA_API_URL=http://vestigia-api:8000
+      - VESTIGIA_MODE=production
+    volumes:
+      - ./data:/app/data:ro
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - vestigia-network
+
+  vestigia-enrichment:
+    build:
+      context: .
+      dockerfile: Dockerfile.enrichment
+    container_name: vestigia-enrichment
+    depends_on:
+      - vestigia-db
+      - vestigia-api
+    environment:
+      - DB_DSN=postgresql://vestigia:${DB_PASSWORD}@vestigia-db:5432/vestigia
+      - VESTIGIA_API_KEY=${VESTIGIA_API_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - VESTIGIA_MODE=production
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - vestigia-network
+
+  # ─────────────────────────────────────────────
+  # Observability Stack
+  # ─────────────────────────────────────────────
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.92.0
+    container_name: vestigia-otel-collector
+    volumes:
+      - ./config/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+      - "8888:8888"    # Prometheus metrics exposed by the collector
+    depends_on:
+      - jaeger
+      - prometheus
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - vestigia-network
+
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    container_name: vestigia-prometheus
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - vestigia-network
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: vestigia-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - vestigia-network
+
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: vestigia-alertmanager
+    volumes:
+      - ./config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    networks:
+      - vestigia-network
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    container_name: vestigia-jaeger
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "14268:14268"  # Accept jaeger.thrift directly from clients
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1.0
+    networks:
+      - vestigia-network
+
+  # ─────────────────────────────────────────────
+  # Infrastructure
+  # ─────────────────────────────────────────────
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: vestigia-nginx
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/nginx/ssl:/etc/nginx/ssl:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - vestigia-api
+      - vestigia-dashboard
+      - grafana
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    networks:
+      - vestigia-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: vestigia-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - vestigia-network
+
+  siem-forwarder:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: vestigia-siem-forwarder
+    command: ["python", "-m", "core.resilient_siem_forwarder"]
+    depends_on:
+      vestigia-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DB_DSN=postgresql://vestigia:${DB_PASSWORD}@vestigia-db:5432/vestigia
+      - REDIS_URL=redis://redis:6379/0
+      - VESTIGIA_API_KEY=${VESTIGIA_API_KEY}
+      - VESTIGIA_MODE=production
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - vestigia-network
+
+  backup-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: vestigia-backup
+    command: >
+      sh -c "while true; do
+        echo '[backup] Starting scheduled backup...';
+        sh /app/backup.sh;
+        echo '[backup] Backup complete. Sleeping 24h...';
+        sleep 86400;
+      done"
+    depends_on:
+      vestigia-db:
+        condition: service_healthy
+    environment:
+      - DB_DSN=postgresql://vestigia:${DB_PASSWORD}@vestigia-db:5432/vestigia
+      - PGPASSWORD=${DB_PASSWORD}
+    volumes:
+      - ./backups:/app/backups
+      - ./data:/app/data:ro
+      - ./backup.sh:/app/backup.sh:ro
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - vestigia-network
+
+# ─────────────────────────────────────────────
+# Networks
+# ─────────────────────────────────────────────
+networks:
+  vestigia-network:
+    driver: bridge
+
+# ─────────────────────────────────────────────
+# Named Volumes
+# ─────────────────────────────────────────────
+volumes:
+  vestigia-db-data:
+    driver: local
+  redis-data:
+    driver: local
+  grafana-data:
+    driver: local

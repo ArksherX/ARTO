@@ -1,0 +1,19 @@
+{
+  "strict": true,
+  "debug": false,
+  "sp": {
+    "entityId": "https://tessera.example.com/metadata",
+    "assertionConsumerService": {
+      "url": "https://tessera.example.com/sso/saml/acs",
+      "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+    }
+  },
+  "idp": {
+    "entityId": "https://idp.example.com/metadata",
+    "singleSignOnService": {
+      "url": "https://idp.example.com/sso",
+      "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+    },
+    "x509cert": ""
+  }
+}

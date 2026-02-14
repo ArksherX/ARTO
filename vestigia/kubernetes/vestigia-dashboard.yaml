@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vestigia-dashboard
+  labels:
+    app: vestigia-dashboard
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vestigia-dashboard
+  template:
+    metadata:
+      labels:
+        app: vestigia-dashboard
+    spec:
+      containers:
+      - name: dashboard
+        image: vestigia/vestigia-dashboard:latest
+        ports:
+        - containerPort: 8501
+        envFrom:
+        - configMapRef:
+            name: vestigia-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vestigia-dashboard
+spec:
+  selector:
+    app: vestigia-dashboard
+  ports:
+  - port: 8501
+    targetPort: 8501

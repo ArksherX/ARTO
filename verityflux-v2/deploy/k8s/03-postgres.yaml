@@ -1,0 +1,157 @@
+# =============================================================================
+# VerityFlux Enterprise - PostgreSQL with TimescaleDB
+# =============================================================================
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: verityflux-postgres-pvc
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 50Gi
+  storageClassName: standard  # Change based on your cluster
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: verityflux-postgres
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: verityflux-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: verityflux
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: verityflux
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: timescale/timescaledb:latest-pg15
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              value: "verityflux"
+            - name: POSTGRES_DB
+              value: "verityflux"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: verityflux-secrets
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - verityflux
+                - -d
+                - verityflux
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - verityflux
+                - -d
+                - verityflux
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: verityflux-postgres-pvc
+        - name: init-scripts
+          configMap:
+            name: verityflux-postgres-init
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: verityflux-postgres
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: postgres
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+  selector:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: postgres
+
+---
+# =============================================================================
+# PostgreSQL Init Scripts ConfigMap
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: verityflux-postgres-init
+  namespace: verityflux
+  labels:
+    app.kubernetes.io/name: verityflux
+    app.kubernetes.io/component: postgres
+data:
+  01-init.sql: |
+    -- Enable TimescaleDB extension
+    CREATE EXTENSION IF NOT EXISTS timescaledb;
+    
+    -- Enable UUID extension
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    
+    -- Enable pg_trgm for text search
+    CREATE EXTENSION IF NOT EXISTS pg_trgm;
+    
+    -- Grant permissions
+    GRANT ALL PRIVILEGES ON DATABASE verityflux TO verityflux;
+    
+    -- Create schemas
+    CREATE SCHEMA IF NOT EXISTS security;
+    CREATE SCHEMA IF NOT EXISTS audit;
+    
+    -- Grant schema permissions
+    GRANT ALL ON SCHEMA security TO verityflux;
+    GRANT ALL ON SCHEMA audit TO verityflux;
