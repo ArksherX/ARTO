@@ -1,15 +1,16 @@
-.env
-.env.*
-*.key
-*.pem
+# Large model files (exceed GitHub 100MB limit)
+model/backdoored-nlp-position-independent/*.safetensors
+model/backdoored-nlp-position-independent/*.pt
+model/backdoored-nlp-position-independent/checkpoint-*/
+
+# Runtime files
 *.log
 __pycache__/
 venv/
 .venv/
+*.pyc
+.env
+.env.*
+
+# Nested git repos
 ARTEMIS/
-ARTEMIS/
-vestigia/data/anchors/
-vestigia/vault_anchors/
-vestigia/web_ui/vestigia_anchors/
-vestigia/vestigia_anchors/
-vestigia/test_anchors/
