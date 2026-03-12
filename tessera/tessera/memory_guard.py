@@ -31,7 +31,8 @@ class SessionMemoryGuard(BaseHTTPMiddleware):
         self.skip_paths = set(skip_paths or [])
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in self.skip_paths or request.method == "OPTIONS":
+        path = request.url.path
+        if path in self.skip_paths or request.method == "OPTIONS" or any(path.startswith(sp) for sp in self.skip_paths):
             return await call_next(request)
 
         auth = request.headers.get("Authorization", "")

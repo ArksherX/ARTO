@@ -1,6 +1,6 @@
 # Vestigia — Session Summary & Project Status
 
-> **Last updated:** 2026-02-08
+> **Last updated:** 2026-02-18
 > **Purpose:** Reference this file at the start of a new Claude session to restore full context.
 
 ---
@@ -247,6 +247,20 @@ Refer to `claude.md` for the full Phase 6 roadmap.
 
 ---
 
+### Suite Integration Updates (2026-02-15)
+
+Changes in the broader Arto Security Suite that affect Vestigia:
+
+1. **Tessera secret key fix** — `TESSERA_SECRET_KEY` was 63 characters (odd-length hex string), causing a `ValueError` on startup. Fixed to 64 characters in `suite_orchestrator.py` and `diagnose_tessera.sh`. This restores the Tessera -> Vestigia event pipeline for cross-plane correlation.
+
+2. **Richer VerityFlux scan events** — VerityFlux now sends scan findings with `scan_mode` metadata ("real" vs "mock"), capability-aware risk levels, and 3-phase detection results (single-shot, crescendo, evasion) to the Vestigia evidence plane. Events include agent context (system prompt, codebase path, vector store URL) when available.
+
+3. **Shared-log fallback validated** — VerityFlux policy audit and event forwarding now gracefully fall back to the shared audit log when the Vestigia API is unavailable. This ensures evidence continuity under degraded conditions.
+
+4. **Suite integration path** — The validated chain is: Tessera token events -> Vestigia evidence, VerityFlux scan/policy/firewall events -> Vestigia (API first, shared-log fallback), Tessera registry -> VerityFlux import for onboarding continuity.
+
+---
+
 ## How to Run
 
 ```bash
@@ -324,3 +338,79 @@ Track 3 — Developer ecosystem:
 - Python SDK (`sdk/python/vestigia_client.py`)
 - SDK example (`examples/vestigia_sdk_example.py`)
 - Developer docs (`docs/SDK_GUIDE.md`, `docs/INTEGRATIONS.md`)
+
+### Enterprise Features (2026-02-17)
+
+#### New ActionTypes (13)
+Added to `core/ledger_engine.py` `ActionType` enum for comprehensive audit trails across the Arto Security Suite enterprise features:
+
+| ActionType | Source Component | Purpose |
+|-----------|-----------------|---------|
+| `REASONING_INTERCEPTED` | VerityFlux | CoT thinking block intercepted by Reasoning Interceptor |
+| `RATIONALIZATION_PERFORMED` | VerityFlux | Independent oversight model evaluated an action |
+| `MEMORY_FILTERED` | VerityFlux | RAG retrievals sanitized at runtime |
+| `ADVERSARIAL_SCORED` | VerityFlux | Input scored for hostility by Adversarial LLM Scorer |
+| `SESSION_DRIFT_ALERT` | VerityFlux | Session drift exceeded threshold (crescendo detection) |
+| `TOOL_MANIFEST_VERIFIED` | VerityFlux | Tool manifest cryptographic verification passed |
+| `TOOL_MANIFEST_FAILED` | VerityFlux | Tool manifest verification or rug-pull detection failed |
+| `DELEGATION_CREATED` | Tessera | Delegated sub-agent token issued |
+| `DELEGATION_VALIDATED` | Tessera | Delegation chain validated |
+| `AIBOM_REGISTERED` | VerityFlux | Component registered in AI Bill of Materials |
+| `AIBOM_VERIFIED` | VerityFlux | Component integrity verified against AIBOM |
+| `FUZZ_TEST_COMPLETED` | VerityFlux | Agentic workflow fuzz test scan completed |
+| `MCP_SCAN_COMPLETED` | VerityFlux | MCP security scan completed |
+
+#### New Files
+| File | What It Does |
+|------|-------------|
+| `core/event_correlator.py` | `EventCorrelator`: cross-component event correlation by session or agent across Tessera/VerityFlux/Vestigia. Detects anomaly patterns: rapid token after threat (high), delegation after drift (critical), manifest fail then execution (critical). |
+| `core/aibom_tracker.py` | `AIBOMTracker`: bridges SupplyChainMonitor with Vestigia ledger. Records AIBOM_REGISTERED and AIBOM_VERIFIED events with component metadata. |
+
+#### Cross-Component Anomaly Detection
+The `EventCorrelator` detects these cross-component anomaly patterns:
+
+| Pattern | Severity | Trigger | Preceding Action | Window |
+|---------|----------|---------|-----------------|--------|
+| `rapid_token_after_threat` | high | TOKEN_ISSUED | THREAT_DETECTED, ACTION_BLOCKED | 60s |
+| `delegation_after_drift` | critical | DELEGATION_CREATED | SESSION_DRIFT_ALERT | 120s |
+| `manifest_fail_then_execution` | critical | TOOL_EXECUTION | TOOL_MANIFEST_FAILED | 30s |
+
+### Integration Validation (2026-02-18)
+
+- Vestigia event ingestion confirmed working end-to-end in 25-test integration suite.
+- Tessera token lifecycle events (TOKEN_ISSUED, TOKEN_VALIDATED, TOKEN_REVOKED) correctly emitted to shared audit log and Vestigia API.
+- All 13 enterprise ActionTypes available for cross-component event correlation.
+- EventCorrelator cross-component anomaly detection operational.
+
+### Test Suite Coverage (2026-02-18)
+
+Vestigia is exercised by all three test suites:
+
+| Script | Vestigia Tests | What They Cover |
+|--------|---------------|-----------------|
+| `test_suite_complete.py` | Section K (6), Section L (4) | Event ingest, query, get by ID, integrity check, statistics, batch ingest, cross-plane events |
+| `test_adversarial_efficacy.py` | Indirect | VerityFlux runtime events (adversarial scoring, memory filtering, session drift) generate Vestigia audit trail entries |
+| `test_e2e_scenarios.py` | Scenarios 1-4 | Audit trail coherence, event count verification, cross-service event correlation, graceful degradation when Vestigia has errors |
+
+Key E2E scenarios that validate Vestigia:
+- **Scenario 1** (Legitimate Agent Workflow): verify events exist for registration, token issued, scan
+- **Scenario 2** (Attack Containment): verify audit trail shows benign → detection → block → revoke → quarantine
+- **Scenario 3** (Delegation Chain): verify delegation events in audit trail
+- **Scenario 4** (Cross-Service Resilience): verify other services continue operating when Vestigia encounters errors
+
+## Update (2026-02-22) — Ledger Integrity Runtime Blocker Fixed
+
+### Fixes
+1. Added safe integrity repair capability in `vestigia/core/ledger_engine.py`.
+- New `repair_integrity(strategy=\"truncate\")`:
+- Creates forensic backup (`.corrupt.<timestamp>.bak`).
+- Truncates ledger at first broken index.
+- Rewrites witness hash and verifies repaired chain.
+
+2. Added runtime recovery flow in `vestigia/api_server.py`.
+- Startup now optionally auto-repairs invalid ledger state for non-production by default via `VESTIGIA_AUTO_REPAIR_INVALID_LEDGER`.
+- Added manual repair endpoint: `POST /integrity/repair`.
+
+### Validation
+- Vestigia health endpoint now reports `ledger_valid=true`.
+- `test_suite_complete.py` Section K + Section L remain passing.

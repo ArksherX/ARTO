@@ -51,6 +51,10 @@ class TokenGenerator:
     """Generates cryptographically signed JWT tokens for agent tool access"""
     ALLOWED_ALGORITHMS = ["HS512"]
     ALLOWED_DPOP_ALGORITHMS = ["ES256", "RS256"]
+    DEV_FALLBACK_SECRET = (
+        "168595de6449925806d7b448d132a5ec6290cb0ce31f253826c2694586f05c0d"
+        "21518555e12dc87de7088820e215aa2505008d87d8a64ce03f2cad74d8484b06"
+    )
     
     def __init__(self, registry):
         self.registry = registry
@@ -65,13 +69,22 @@ class TokenGenerator:
 
     def _load_secret_key(self) -> bytes:
         secret_key = os.getenv('TESSERA_SECRET_KEY')
+        env_name = os.getenv("TESSERA_ENV", "").strip().lower()
+        strict = os.getenv("TESSERA_STRICT_SECRET_KEY", "false").lower() in ("1", "true", "yes")
+        strict = strict or env_name in ("prod", "production")
         if not secret_key and os.getenv("PYTEST_CURRENT_TEST"):
             secret_key = "a" * 64
         if not secret_key:
-            raise ValueError("TESSERA_SECRET_KEY must be set in .env")
+            if strict:
+                raise ValueError("TESSERA_SECRET_KEY must be set in .env")
+            # Demo/dev-safe fallback aligned with tessera/api_server.py
+            secret_key = self.DEV_FALLBACK_SECRET
         key_bytes = self._normalize_secret_key(secret_key)
         if len(key_bytes) < 64:  # 512-bit minimum
-            raise ValueError("TESSERA_SECRET_KEY must be at least 64 bytes (512-bit)")
+            if strict:
+                raise ValueError("TESSERA_SECRET_KEY must be at least 64 bytes (512-bit)")
+            # Dev fallback: derive a stable 512-bit key from provided secret.
+            key_bytes = hashlib.sha512(key_bytes).digest()
         return key_bytes
 
     @staticmethod
@@ -146,8 +159,8 @@ class TokenGenerator:
         return None
     
     def generate_token(
-        self, 
-        agent_id: str, 
+        self,
+        agent_id: str,
         tool: str,
         custom_ttl: Optional[int] = None,
         session_id: Optional[str] = None,
@@ -155,7 +168,11 @@ class TokenGenerator:
         memory_state: Optional[bytes] = None,
         client_public_key: Optional[str] = None,
         client_jwk: Optional[Dict[str, Any]] = None,
-        dpop_thumbprint: Optional[str] = None
+        dpop_thumbprint: Optional[str] = None,
+        delegation_chain: Optional[list] = None,
+        parent_jti: Optional[str] = None,
+        delegation_depth: int = 0,
+        role: Optional[str] = None
     ) -> Optional[TesseraToken]:
         """Generate a signed JWT token for agent tool access"""
         # Verify agent exists
@@ -203,6 +220,8 @@ class TokenGenerator:
             'jti': jti,
             'iss': 'tessera-iam'
         }
+        if getattr(agent, "active_key_id", None):
+            payload["agent_key_id"] = agent.active_key_id
 
         if self.include_nonce:
             payload['nonce'] = secrets.token_urlsafe(16)
@@ -213,6 +232,14 @@ class TokenGenerator:
             payload['memory_hash'] = memory_hash
         if jkt:
             payload['cnf'] = {'jkt': jkt}
+        if delegation_chain is not None:
+            payload['delegation_chain'] = delegation_chain
+        if parent_jti:
+            payload['parent_jti'] = parent_jti
+        if delegation_depth > 0:
+            payload['delegation_depth'] = delegation_depth
+        if role:
+            payload["role"] = role
         
         # Sign token with hardened algorithm
         token_raw = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)

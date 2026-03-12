@@ -6,6 +6,8 @@ PostgreSQL registry + Redis revocation + rate limiting + Prometheus metrics.
 
 import os
 import sys
+import json
+import hashlib
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +19,7 @@ import uvicorn
 sys.path.insert(0, str(Path(__file__).parent))
 
 from tessera.token_generator import TokenGenerator
+from tessera.agent_keys import verify_payload
 from tessera.gatekeeper import Gatekeeper, AccessDecision
 from tessera.session_store import SessionStateStore
 from tessera.audit_logger import AuditChainLogger
@@ -420,6 +423,10 @@ class AccessValidate(BaseModel):
     reasoning_chain: list
     original_goal: str
     context: Optional[dict] = None
+    sandbox_attested: Optional[bool] = None
+    action_signature: Optional[str] = None
+    action_payload: Optional[dict] = None
+    key_id: Optional[str] = None
 
 
 @app.post("/access/validate")
@@ -427,6 +434,52 @@ def access_validate(req: AccessValidate, request: Request):
     tenant_id = _require_tenant(request)
     if not verityflux_bridge:
         raise HTTPException(503, "VerityFlux integration unavailable")
+    action_payload = req.action_payload or {
+        "agent_id": req.agent_id,
+        "tool": req.tool,
+        "parameters": req.parameters,
+        "reasoning_chain": req.reasoning_chain,
+        "original_goal": req.original_goal,
+        "context": req.context or {},
+    }
+    action_hash = hashlib.sha256(
+        json.dumps(action_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    signature_valid = None
+    if req.action_signature:
+        agent_record = registry_adapter.persistence.get_agent(req.agent_id) or {}
+        public_key = agent_record.get("public_key") or agent_record.get("agent_public_key")
+        if public_key:
+            signature_valid = verify_payload(public_key, action_payload, req.action_signature)
+    if os.getenv("TESSERA_REQUIRE_ACTION_SIGNATURE", "true").lower() in ("1", "true", "yes"):
+        if not req.action_signature:
+            return {
+                "decision": "deny_identity",
+                "tessera_decision": "deny_identity",
+                "tessera_reason": "Missing action signature",
+                "verityflux_risk": 0.0,
+                "verityflux_reason": "Missing action signature",
+                "risk_breakdown": None,
+                "agent_id": req.agent_id,
+                "tool": req.tool,
+                "signature_valid": False,
+                "signature_key_id": req.key_id,
+                "action_hash": action_hash,
+            }
+        if signature_valid is False:
+            return {
+                "decision": "deny_identity",
+                "tessera_decision": "deny_identity",
+                "tessera_reason": "Invalid action signature",
+                "verityflux_risk": 0.0,
+                "verityflux_reason": "Invalid action signature",
+                "risk_breakdown": None,
+                "agent_id": req.agent_id,
+                "tool": req.tool,
+                "signature_valid": False,
+                "signature_key_id": req.key_id,
+                "action_hash": action_hash,
+            }
     result = verityflux_bridge.validate_action(
         token=req.token,
         agent_id=req.agent_id,
@@ -434,11 +487,16 @@ def access_validate(req: AccessValidate, request: Request):
         parameters=req.parameters,
         reasoning_chain=req.reasoning_chain,
         original_goal=req.original_goal,
-        context=req.context
+        context=req.context,
+        sandbox_attested=req.sandbox_attested,
     )
     if result.tessera_result.payload and result.tessera_result.payload.get("tenant_id") != tenant_id:
         raise HTTPException(403, "Tenant mismatch")
-    return result.to_dict()
+    out = result.to_dict()
+    out["signature_valid"] = signature_valid
+    out["signature_key_id"] = req.key_id
+    out["action_hash"] = action_hash
+    return out
 
 
 @app.get("/health")

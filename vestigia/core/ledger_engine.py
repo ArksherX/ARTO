@@ -45,6 +45,20 @@ class ActionType(Enum):
     HEARTBEAT = "HEARTBEAT"
     LEDGER_INITIALIZED = "LEDGER_INITIALIZED"
     LEDGER_ROTATED = "LEDGER_ROTATED"
+    # Enterprise features (Phase 1-6)
+    REASONING_INTERCEPTED = "REASONING_INTERCEPTED"
+    RATIONALIZATION_PERFORMED = "RATIONALIZATION_PERFORMED"
+    MEMORY_FILTERED = "MEMORY_FILTERED"
+    ADVERSARIAL_SCORED = "ADVERSARIAL_SCORED"
+    SESSION_DRIFT_ALERT = "SESSION_DRIFT_ALERT"
+    TOOL_MANIFEST_VERIFIED = "TOOL_MANIFEST_VERIFIED"
+    TOOL_MANIFEST_FAILED = "TOOL_MANIFEST_FAILED"
+    DELEGATION_CREATED = "DELEGATION_CREATED"
+    DELEGATION_VALIDATED = "DELEGATION_VALIDATED"
+    AIBOM_REGISTERED = "AIBOM_REGISTERED"
+    AIBOM_VERIFIED = "AIBOM_VERIFIED"
+    FUZZ_TEST_COMPLETED = "FUZZ_TEST_COMPLETED"
+    MCP_SCAN_COMPLETED = "MCP_SCAN_COMPLETED"
 
 
 @dataclass
@@ -748,6 +762,81 @@ class VestigiaLedger:
                 return False, i
         
         return True, None
+
+    def repair_integrity(self, strategy: str = "truncate") -> Dict[str, Any]:
+        """
+        Attempt a safe integrity repair.
+
+        Strategy:
+        - truncate: keep entries up to (but not including) first broken index.
+          A forensic backup of the original file is always written first.
+        """
+        def _verify_unlocked(data: List[dict]) -> tuple[bool, Optional[int]]:
+            if not data:
+                return True, None
+            for i in range(1, len(data)):
+                entry = data[i]
+                previous_hash = data[i - 1]["integrity_hash"]
+                if entry.get("previous_hash") != previous_hash:
+                    return False, i
+                expected_hash = self._generate_integrity_hash(
+                    timestamp=entry["timestamp"],
+                    tenant_id=entry.get("tenant_id"),
+                    actor_id=entry["actor_id"],
+                    action_type=entry["action_type"],
+                    status=entry["status"],
+                    evidence=entry["evidence"],
+                    previous_hash=previous_hash,
+                )
+                if entry["integrity_hash"] != expected_hash:
+                    return False, i
+            return True, None
+
+        with self._lock:
+            trail = self._load_ledger()
+            valid, broken_idx = _verify_unlocked(trail)
+            if valid:
+                return {
+                    "repaired": False,
+                    "already_valid": True,
+                    "broken_index": None,
+                    "kept_entries": len(trail),
+                    "backup_path": None,
+                }
+            if not trail:
+                return {
+                    "repaired": False,
+                    "already_valid": False,
+                    "broken_index": broken_idx,
+                    "kept_entries": 0,
+                    "backup_path": None,
+                }
+
+            ts = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+            backup_path = self.ledger_path.with_suffix(f".corrupt.{ts}.bak")
+            try:
+                shutil.copy2(self.ledger_path, backup_path)
+            except Exception:
+                backup_path = None
+
+            if strategy != "truncate":
+                raise ValueError(f"Unsupported repair strategy: {strategy}")
+
+            cut = broken_idx if broken_idx is not None else len(trail)
+            # Keep at least the first record to avoid empty-ledger regressions.
+            kept = trail[:max(1, cut)]
+            self._atomic_save(kept)
+            if kept:
+                self._witness_state(kept[-1]["integrity_hash"])
+
+            valid_after, _ = _verify_unlocked(kept)
+            return {
+                "repaired": bool(valid_after),
+                "already_valid": False,
+                "broken_index": broken_idx,
+                "kept_entries": len(kept),
+                "backup_path": str(backup_path) if backup_path else None,
+            }
     
     def query_events(
         self,

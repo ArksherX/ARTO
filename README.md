@@ -3,7 +3,7 @@
 A local-first security suite for agentic AI systems in 2026, composed of:
 - **Tessera** — identity & access control (JWT/DPoP, revocation, RBAC/SSO)
 - **Vestigia** — tamper‑evident audit & forensics (ledger, SIEM/OTel)
-- **VerityFlux v2** — verification/scanning (policy validation, firewall)
+- **VerityFlux v2** — verification/scanning (20 OWASP detectors with real LLM probing, policy validation, firewall)
 
 This repo supports **standalone runs**, **opt‑in integration**, and a **local Docker Compose stack**.
 
@@ -74,6 +74,16 @@ Local Docker host ports (current mapping):
 
 ---
 
+## Production Notes (HA + Secrets)
+
+- Rotate all default secrets; set `TESSERA_SECRET_KEY`, `VERITYFLUX_API_KEY`, and `VESTIGIA_API_KEY` via a secret store.
+- Run multiple API instances behind a reverse proxy; use shared Redis for rate limits and replay caches.
+- Persist audit logs to durable storage; set `TESSERA_AUDIT_RETENTION_DAYS` and export via `/audit/export`.
+- Enforce TLS and restrict ingress to internal networks where possible.
+- See `ops/secrets_env.md` and `ops/hardening_playbook.md` for full env + hardening guidance.
+
+---
+
 ## Integration Hooks (Opt‑In)
 
 Integration hooks forward contract events to Vestigia.
@@ -90,20 +100,54 @@ Contract spec:
 
 ---
 
-## Testing & Reliability
+## Testing & Validation
+
+### Full Test Suites (recommended)
+
+```bash
+# Start all services first
+./launch_suite.sh
+
+# 1. Functional plumbing (61 tests) — do APIs respond correctly?
+python test_suite_complete.py
+
+# 2. Adversarial efficacy (38 tests) — do security detections catch real attacks?
+python test_adversarial_efficacy.py
+
+# 3. E2E scenarios (28 steps) — do cross-service workflows work end-to-end?
+python test_e2e_scenarios.py
+```
+
+| Script | What It Validates | Sections |
+|--------|------------------|----------|
+| `test_suite_complete.py` | API plumbing across all 3 services | 12 sections (A-L), 61 tests |
+| `test_adversarial_efficacy.py` | Prompt injection, tool call blocking, reasoning interception, memory poisoning, session drift, scanner detection, LLM adapter connectivity | 8 sections (A-H), 38 tests |
+| `test_e2e_scenarios.py` | Legitimate agent workflow, attack detection & containment, delegation chain security, cross-service resilience | 4 scenarios, 28 steps |
+
+### Legacy Checks
 
 Smoke test:
 ```bash
-/home/arksher/ml-redteam/integration_smoke_test.py
+python integration_smoke_test.py
 ```
 
 Reliability check:
 ```bash
-/home/arksher/ml-redteam/reliability_check.py
+python reliability_check.py
+```
+
+Failure-mode deterministic check:
+```bash
+EXPECT_DOWN=vestigia python ops/failure_mode_e2e.py
+```
+
+SLO report for a sandbox run:
+```bash
+RUN_ID=<run_id> python ops/soak_slo_report.py
 ```
 
 Integration test plan:
-- `/home/arksher/ml-redteam/ops/integration_test_plan.md`
+- `ops/integration_test_plan.md`
 
 ---
 
@@ -112,6 +156,8 @@ Integration test plan:
 Playbooks:
 - `/home/arksher/ml-redteam/ops/hardening_playbook.md`
 - `/home/arksher/ml-redteam/ops/reliability_checks.md`
+- `/home/arksher/ml-redteam/ops/blackhat_submission_pack.md`
+- `/home/arksher/ml-redteam/preflight_check.py` (called by `launch_suite.sh` before startup)
 
 ---
 
@@ -147,7 +193,12 @@ A GitHub Actions workflow spins up the local stack and runs the E2E smoke + reli
 - Standalone: **working**
 - Opt‑in integration: **working (event forwarding)**
 - CI smoke tests: **working**
-- Production deployment: **planned**
+- VerityFlux real scanning: **working** (all 20 detectors query live LLMs, no simulated data)
+- LLM adapter connectivity: **hardened** (timeouts for all providers, Ollama pre-flight, error diagnostics)
+- Agent onboarding: **working** (single register, bulk upload, Tessera import, capability declarations)
+- Runtime enforcement: **working** (reasoning interception, memory filtering, adversarial scoring, session drift)
+- Production deployment: **ready** (API key pipeline, scan_mode metadata, capability-based risk assessment)
+- Test coverage: **3 suites** (61 functional + 38 adversarial efficacy + 28 E2E scenario steps)
 
 ---
 

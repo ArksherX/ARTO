@@ -5,6 +5,7 @@ from typing import Optional, Dict
 from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime
+from urllib.parse import urlparse
 
 from tessera.token_generator import TokenGenerator
 from tessera.revocation import RevocationList
@@ -22,6 +23,9 @@ class AccessDecision(Enum):
     DENY_DPOP_INVALID = "deny_dpop_invalid"
     DENY_DEPENDENCY_RISK = "deny_dependency_risk"
     DENY_REPLAY = "deny_replay"
+    DENY_DELEGATION_EXCEEDED = "deny_delegation_exceeded"
+    DENY_EGRESS_POLICY = "deny_egress_policy"
+    DENY_CONTAINMENT_POLICY = "deny_containment_policy"
 
 @dataclass
 class GatekeeperResult:
@@ -36,6 +40,8 @@ class GatekeeperResult:
 class Gatekeeper:
     """Validates Tessera tokens and enforces access control"""
     
+    MAX_DELEGATION_DEPTH = 5
+
     def __init__(
         self,
         token_generator: TokenGenerator,
@@ -53,7 +59,10 @@ class Gatekeeper:
         requested_tool: str,
         dpop_proof: Optional[str] = None,
         expected_htm: Optional[str] = None,
-        expected_htu: Optional[str] = None
+        expected_htu: Optional[str] = None,
+        target_url: Optional[str] = None,
+        file_path: Optional[str] = None,
+        sandbox_attested: Optional[bool] = None,
     ) -> GatekeeperResult:
         """Validate agent access to a tool"""
         # Validate token
@@ -96,6 +105,30 @@ class Gatekeeper:
                     reason="Invalid DPoP proof"
                 )
         
+        # Delegation chain validation
+        delegation_depth = payload.get('delegation_depth', 0)
+        if delegation_depth > self.MAX_DELEGATION_DEPTH:
+            return GatekeeperResult(
+                decision=AccessDecision.DENY_DELEGATION_EXCEEDED,
+                agent_id=payload.get('sub'),
+                reason=f"Delegation depth {delegation_depth} exceeds max {self.MAX_DELEGATION_DEPTH}"
+            )
+
+        delegation_chain = payload.get('delegation_chain')
+        if delegation_chain:
+            # Validate scope intersection through the chain
+            prev_scopes = None
+            for link in delegation_chain:
+                link_scopes = set(link.get('scopes_granted', []))
+                if prev_scopes is not None and link_scopes:
+                    if not link_scopes.issubset(prev_scopes):
+                        return GatekeeperResult(
+                            decision=AccessDecision.DENY_DELEGATION_EXCEEDED,
+                            agent_id=payload.get('sub'),
+                            reason="Delegation chain scope escalation detected"
+                        )
+                prev_scopes = link_scopes
+
         # Verify scope
         token_tool = payload.get('tool')
         if token_tool != requested_tool:
@@ -123,6 +156,38 @@ class Gatekeeper:
         if self.registry:
             agent = self.registry.get_agent(payload.get('sub'))
             if agent:
+                # Runtime containment: egress allowlist
+                if target_url and getattr(agent, "allowed_domains", None):
+                    try:
+                        host = (urlparse(target_url).hostname or "").lower()
+                    except Exception:
+                        host = ""
+                    allowed = [d.lower().strip() for d in (agent.allowed_domains or []) if d]
+                    if host and allowed and host not in allowed:
+                        return GatekeeperResult(
+                            decision=AccessDecision.DENY_EGRESS_POLICY,
+                            agent_id=agent.agent_id,
+                            reason=f"Egress host '{host}' not in agent allowlist",
+                        )
+
+                # Runtime containment: file path prefix allowlist
+                if file_path and getattr(agent, "allowed_path_prefixes", None):
+                    prefixes = [p for p in (agent.allowed_path_prefixes or []) if p]
+                    if prefixes and not any(str(file_path).startswith(p) for p in prefixes):
+                        return GatekeeperResult(
+                            decision=AccessDecision.DENY_CONTAINMENT_POLICY,
+                            agent_id=agent.agent_id,
+                            reason=f"File path '{file_path}' outside allowed prefixes",
+                        )
+
+                # Runtime containment: sandbox attestation requirement
+                if bool(getattr(agent, "require_sandbox", False)) and not bool(sandbox_attested):
+                    return GatekeeperResult(
+                        decision=AccessDecision.DENY_CONTAINMENT_POLICY,
+                        agent_id=agent.agent_id,
+                        reason="Agent requires sandboxed execution attestation",
+                    )
+
                 for dependency_id in (agent.trust_dependencies or []):
                     dependency = self.registry.get_agent(dependency_id)
                     if not dependency or dependency.status != "active" or dependency.trust_score < 50:

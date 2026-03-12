@@ -103,6 +103,16 @@ class ScopeValidator:
         
         return True, None
 
+    @staticmethod
+    def intersect_scopes(parent_scopes: set, requested_scopes: set) -> set:
+        """
+        Calculate the intersection of parent and requested scopes.
+
+        Used during delegation to ensure sub-agent scopes never exceed parent.
+        Returns the effective scopes (subset of both).
+        """
+        return parent_scopes & requested_scopes
+
 # Example usage
 if __name__ == "__main__":
     validator = ScopeValidator()

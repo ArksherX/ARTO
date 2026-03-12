@@ -37,6 +37,22 @@ jobs:
           VESTIGIA_API_KEY: dev-vestigia-key
         run: |
           python integration_smoke_test.py
+      
+      - name: Run preflight check (strict)
+        env:
+          SUITE_STRICT_MODE: "true"
+          TESSERA_SECRET_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          VERITYFLUX_API_KEY: "ci-verityflux-key"
+          VESTIGIA_API_KEY: "dev-vestigia-key"
+        run: |
+          python preflight_check.py
+
+      - name: Run suite release gate
+        env:
+          VERITYFLUX_API_KEY: "ci-verityflux-key"
+          VESTIGIA_API_KEY: "dev-vestigia-key"
+        run: |
+          python test_suite_complete.py
 
       - name: Run reliability check
         env:
@@ -44,6 +60,18 @@ jobs:
           P95_THRESHOLD_MS: "1500"
         run: |
           python reliability_check.py
+
+      - name: Verify continuity endpoint
+        env:
+          VESTIGIA_API_KEY: dev-vestigia-key
+        run: |
+          curl -sf -H "Authorization: Bearer ${VESTIGIA_API_KEY}" "http://localhost:8002/continuity/check?minutes=60"
+
+      - name: Failure mode check (Vestigia down)
+        run: |
+          docker compose -f docker-compose.suite.yml stop vestigia-api
+          EXPECT_DOWN=vestigia python ops/failure_mode_e2e.py
+          docker compose -f docker-compose.suite.yml start vestigia-api
 
       - name: Shutdown
         if: always()

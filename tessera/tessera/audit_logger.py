@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional, Iterable
 
 
@@ -20,6 +20,9 @@ class AuditChainLogger:
         self.log_path = log_path
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         self._last_hash = self._load_last_hash()
+        retention_days = int(os.getenv("TESSERA_AUDIT_RETENTION_DAYS", "0") or 0)
+        if retention_days > 0:
+            self.apply_retention(retention_days)
 
     def _load_last_hash(self) -> str:
         """Read the last entry hash from the log file, if present."""
@@ -50,6 +53,15 @@ class AuditChainLogger:
     def _compute_hash(self, entry: Dict[str, Any]) -> str:
         payload = json.dumps(entry, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return hashlib.sha256(payload).hexdigest()
+
+    @staticmethod
+    def _parse_timestamp(ts: Optional[str]) -> Optional[datetime]:
+        if not ts:
+            return None
+        try:
+            return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except Exception:
+            return None
 
     def log_event(
         self,
@@ -103,3 +115,40 @@ class AuditChainLogger:
                 return False
             prev_hash = entry_hash
         return True
+
+    def prune_older_than(self, cutoff: datetime) -> int:
+        """Prune audit entries older than cutoff. Returns number removed."""
+        if not cutoff:
+            return 0
+        kept: list[Dict[str, Any]] = []
+        removed = 0
+        for entry in self.iter_events():
+            ts = self._parse_timestamp(entry.get("timestamp"))
+            if ts and ts < cutoff:
+                removed += 1
+                continue
+            kept.append(entry)
+        if removed == 0:
+            return 0
+        prev_hash = "0" * 64
+        rewritten = []
+        for entry in kept:
+            clean = dict(entry)
+            clean.pop("hash", None)
+            clean["previous_hash"] = prev_hash
+            entry_hash = self._compute_hash(clean)
+            clean["hash"] = entry_hash
+            rewritten.append(clean)
+            prev_hash = entry_hash
+        with open(self.log_path, "w", encoding="utf-8") as f:
+            for entry in rewritten:
+                f.write(json.dumps(entry, sort_keys=True) + "\n")
+        self._last_hash = prev_hash if rewritten else "0" * 64
+        return removed
+
+    def apply_retention(self, retention_days: int) -> int:
+        """Apply retention policy by pruning entries older than N days."""
+        if retention_days <= 0:
+            return 0
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        return self.prune_older_than(cutoff)

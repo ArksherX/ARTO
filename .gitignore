@@ -14,3 +14,33 @@ venv/
 
 # Nested git repos
 ARTEMIS/
+
+# Local artifacts & logs
+/logs/
+/logs_*.log
+/metrics/
+/shared_state/*.log
+/tessera/logs/
+/tessera/metrics/
+/vestigia/logs/
+
+# Local data outputs (root-level sandbox artifacts)
+/data/*.json
+!/data/witness.hash
+
+# Anchor/ledger temp artifacts
+/vestigia/data/archives/
+/vestigia/data/*.tmp
+/vestigia/data/*.bak
+/vestigia/data/*.lock
+/vestigia_anchors/
+/vestigia/data/anchors/
+/vestigia/vault_anchors/
+/vestigia/web_ui/vestigia_anchors/
+/vestigia/vestigia_anchors/
+/vestigia/test_anchors/
+
+# Sensitive keys
+/tessera/data/tessera_root_key.json
+/verityflux-v2/data/attestation_key.json
+/vestigia/.credentials

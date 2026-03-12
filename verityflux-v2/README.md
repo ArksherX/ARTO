@@ -1,45 +1,205 @@
-# VerityFlux Enterprise - Deployment Guide
+# VerityFlux v2 — AI Security Scanner
 
 ## Overview
 
-This guide covers deploying VerityFlux Enterprise in various environments:
+VerityFlux is a production security scanner for LLM and agentic AI systems. It tests real targets against the **OWASP LLM Top 10 (2025)** and **OWASP Agentic AI Top 10 (2026)** — 20 vulnerability categories total — by sending adversarial prompts to live LLM endpoints and analyzing responses for unsafe behavior.
 
-- **Docker Compose** - Local development and small deployments
-- **Kubernetes** - Production-grade scalable deployment
-- **Helm** - Simplified Kubernetes deployment with templating
+VerityFlux supports **OpenAI**, **Anthropic**, **Azure OpenAI**, **Hugging Face**, **Ollama** (local), and **custom endpoints**. A **mock mode** is available for demos and CI pipelines where no API key is needed.
 
 ---
 
-## Quick Start
+## How It Works
+
+### Scan Pipeline
+
+1. **Onboard** your agent or LLM target (via UI, API, or Tessera import).
+2. **Declare capabilities** — what security controls the target has (sandbox, RBAC, approval workflows, circuit breakers, etc.).
+3. **Provide credentials** — API key for the LLM provider (or use Ollama for local models).
+4. **Run scan** — VerityFlux sends adversarial prompts through 20 detectors against the live LLM endpoint.
+5. **Analyze results** — each detector returns a `ThreatDetectionResult` with risk level, confidence, evidence, and actionable recommendations.
+
+Every scan result includes a `scan_mode` field (`"real"`, `"mock"`, or `"unknown"`) so operators always know whether findings come from actual LLM responses or simulated data.
+
+### What the Detectors Test
+
+Each detector sends crafted attack prompts to the target LLM and checks responses for compliance indicators (the model did the unsafe thing) vs. refusal indicators (the model correctly refused). No `random.random()` or hardcoded simulation is used.
+
+| Category | ID | Threat |
+|----------|-----|--------|
+| LLM | LLM01 | Prompt Injection |
+| LLM | LLM02 | Sensitive Data Disclosure |
+| LLM | LLM03 | Supply Chain Vulnerabilities |
+| LLM | LLM04 | Data & Model Poisoning |
+| LLM | LLM05 | Insecure Output Handling |
+| LLM | LLM06 | Excessive Agency |
+| LLM | LLM07 | System Prompt Leakage |
+| LLM | LLM08 | RAG Security (Vector/Retrieval) |
+| LLM | LLM09 | Misinformation & Hallucination |
+| LLM | LLM10 | Unbounded Consumption |
+| Agentic | AAI01 | Agentic Goal Hijacking |
+| Agentic | AAI02 | Agent Identity & Trust Abuse |
+| Agentic | AAI03 | Unsafe Code Execution |
+| Agentic | AAI04 | Insecure Inter-Agent Communication |
+| Agentic | AAI05 | Human-Agent Trust Exploitation |
+| Agentic | AAI06 | Tool Misuse & Exploitation |
+| Agentic | AAI07 | Agentic Supply Chain |
+| Agentic | AAI08 | Memory & Context Poisoning |
+| Agentic | AAI09 | Cascading Failures |
+| Agentic | AAI10 | Rogue Agent Detection |
+
+---
+
+## Agent & LLM Onboarding
+
+### Via the UI (Streamlit)
+
+1. Navigate to the **Agents** tab in the VerityFlux UI.
+2. Use one of three onboarding methods:
+   - **Single Register** — enter agent name, type, provider, model, endpoint URL, and API key.
+   - **Bulk Upload** — upload a CSV/JSON file with multiple agents.
+   - **Import from Tessera** — pull registered agents from the Tessera identity plane (requires Tessera API running).
+3. Under **Security Capabilities**, declare what controls the agent has:
+   - Sandbox, approval workflow, RBAC, identity verification
+   - Code validation, cost controls, monitoring, kill switch
+   - Persistent memory, RAG, tool access
+4. Registered agents appear in the live inventory and can be selected as scan targets.
+
+### Via the API
+
+```bash
+# Register an agent
+curl -X POST http://localhost:8003/api/v1/soc/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_name": "customer-support-bot",
+    "agent_type": "conversational",
+    "provider": "openai",
+    "model": "gpt-4o",
+    "endpoint_url": null,
+    "api_key": "sk-...",
+    "has_sandbox": false,
+    "has_approval_workflow": true,
+    "has_rbac": true,
+    "has_identity_verification": false,
+    "has_memory": true,
+    "has_rag": true,
+    "has_code_validation": false,
+    "has_cost_controls": true,
+    "has_monitoring": true,
+    "has_kill_switch": false
+  }'
+```
+
+### Capability Declarations
+
+Capabilities directly affect scan results. For example:
+- If `has_sandbox=False`, the AAI03 (Unsafe Code Execution) detector flags the absence as a risk factor.
+- If `has_approval_workflow=False`, the LLM06 (Excessive Agency) detector adjusts its risk assessment upward.
+- If `has_circuit_breaker=False` and `has_error_isolation=False`, the AAI09 (Cascading Failures) detector factors in infrastructure gaps.
+
+Undeclared capabilities default to `False` (conservative security posture — absent until proven present).
+
+---
+
+## Running a Production Scan
+
+### Prerequisites
+
+- An LLM provider API key (OpenAI, Anthropic, etc.) **or** a local Ollama instance running.
+- VerityFlux API server running (`python api/v2/main.py`).
+
+### Via the UI
+
+1. Go to the **Scanner** tab.
+2. Select provider (openai, anthropic, ollama, azure_openai, huggingface, custom).
+3. Enter model name (e.g., `gpt-4o`, `claude-sonnet-4-20250514`, `llama3`).
+4. Enter API key (not required for Ollama or mock mode).
+5. Optionally enter a custom endpoint URL.
+6. Under **Target Capabilities**, check all security controls that apply to your target.
+7. Click **Start Scan**.
+
+### Via the API
+
+```bash
+curl -X POST http://localhost:8003/api/v2/scan \
+  -H "Content-Type: application/json" \
+  -d '{
+    "target_type": "openai",
+    "model_name": "gpt-4o",
+    "api_key": "sk-...",
+    "config": {
+      "is_agent": true,
+      "has_tools": true,
+      "has_memory": true,
+      "has_rag": true,
+      "has_sandbox": false,
+      "has_approval_workflow": true,
+      "has_rbac": true,
+      "has_cost_controls": true,
+      "has_monitoring": true
+    }
+  }'
+```
+
+### Scan Modes
+
+| Mode | When | What happens |
+|------|------|-------------|
+| **Real** (`scan_mode="real"`) | Valid API key + reachable provider | Adversarial prompts sent to live LLM, responses analyzed |
+| **Mock** (`scan_mode="mock"`) | No API key or provider="mock" | Deterministic simulated responses for demos and CI |
+
+The API key flows through: **UI** -> **API** (`ScanTargetRequest` with backward-compatible extraction) -> **`_build_target_dict()`** -> **detector** -> **`get_llm_adapter(target)`** -> **`LLMAdapter`** -> **provider SDK**.
+
+---
+
+## Local Development
+
+```bash
+cd verityflux-v2
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start API server
+python api/v2/main.py
+
+# Start UI (separate terminal)
+streamlit run ui/streamlit/app.py
+
+# Access:
+# - API: http://localhost:8003
+# - UI: http://localhost:8503
+# - API docs: http://localhost:8003/docs
+```
+
+### Running with Ollama (no API key needed)
+
+```bash
+# Install and start Ollama
+ollama serve
+
+# Pull a model
+ollama pull llama3
+
+# In VerityFlux, select provider=ollama, model=llama3
+# Scans will run against your local model with scan_mode="real"
+```
+
+---
+
+## Deployment
 
 ### Docker Compose (Development)
 
 ```bash
-# Clone and navigate to project
-cd verityflux_enterprise
-
-# Copy environment template
 cp .env.example .env
-
-# Edit .env with your values
-vim .env
-
-# Start all services
+vim .env  # Set API keys and secrets
 docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Access services
-# - API: http://localhost:8000
-# - UI: http://localhost:8501
-# - Docs: http://localhost:8000/docs
 ```
 
 ### Docker Compose (Production)
 
 ```bash
-# Use production override
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
@@ -114,10 +274,19 @@ REDIS_URL=redis://host:6379/0
 # Security
 JWT_SECRET_KEY=<32+ char random string>
 SECRET_KEY=<32+ char random string>
+```
 
-# Stripe (SaaS mode)
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
+### LLM Provider Keys (for production scanning)
+
+```bash
+# At least one provider key is needed for real scans.
+# The key can also be provided per-scan via the UI or API payload.
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+AZURE_OPENAI_API_KEY=...
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+HUGGINGFACE_API_KEY=hf_...
+# Ollama requires no key — just a running local instance.
 ```
 
 ### Integration Environment Variables
@@ -134,15 +303,6 @@ JIRA_API_TOKEN=...
 
 # PagerDuty
 PAGERDUTY_ROUTING_KEY=...
-
-# Twilio
-TWILIO_ACCOUNT_SID=...
-TWILIO_AUTH_TOKEN=...
-TWILIO_FROM_NUMBER=+1234567890
-
-# LLM Providers (for scanning)
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
 
 # Vulnerability Database
 NVD_API_KEY=...
@@ -299,11 +459,37 @@ kubectl run -it --rm debug --image=redis:7-alpine --restart=Never -n verityflux 
 
 ---
 
-## Support
+## Project Structure
 
-- Documentation: https://docs.verityflux.ai
-- Issues: https://github.com/verityflux/enterprise/issues
-- Email: support@verityflux.ai
+```
+verityflux-v2/
+├── api/v2/main.py                  # FastAPI server, scan + agent + enterprise endpoints
+├── core/
+│   ├── types.py                    # ThreatDetectionResult, FuzzThreat, MCPThreat, enums
+│   └── scanner.py                  # Scan orchestrator (20 OWASP + 3 fuzz + 4 MCP detectors)
+├── cognitive_firewall/
+│   ├── firewall.py                 # Core cognitive firewall with stateful tracking
+│   ├── reasoning_interceptor.py    # Runtime CoT interception (allow/block/escalate)
+│   ├── rationalization_engine.py   # LLM-as-a-Judge independent oversight
+│   ├── memory_runtime_filter.py    # Runtime RAG retrieval sanitization
+│   ├── adversarial_scorer.py       # Semantic hostility grading
+│   ├── stateful_intent_tracker.py  # Session drift + crescendo detection
+│   ├── mcp_sentry.py               # MCP request interception
+│   ├── tool_manifest_signer.py     # HMAC-SHA256 manifest signing
+│   ├── schema_validator.py         # JSON Schema enforcement
+│   ├── supply_chain_monitor.py     # AIBOM tracking
+│   ├── tool_registry.py            # Tool verification + signature checks
+│   └── complete_stack.py           # Wires all runtime modules together
+├── detectors/
+│   ├── common.py                   # Shared get_llm_adapter() factory
+│   ├── llm_top10/                  # LLM01-LLM10 detectors
+│   ├── agentic_top10/              # AAI01-AAI10 detectors
+│   ├── fuzz/                       # Agentic workflow fuzz detectors (3)
+│   └── mcp/                        # MCP security detectors (4)
+├── integrations/
+│   └── llm_adapter.py              # Unified LLM client (OpenAI/Anthropic/Ollama/HF/Azure/Mock)
+└── ui/streamlit/app.py             # Streamlit dashboard (12+ tabs)
+```
 
 ---
 
@@ -311,4 +497,9 @@ kubectl run -it --rm debug --image=redis:7-alpine --restart=Never -n verityflux 
 
 | Version | Date | Notes |
 |---------|------|-------|
-| 3.5.0 | 2026-01 | Initial enterprise release |
+| 2.3.2 | 2026-02-18 | LLM adapter hardening: fixed timeouts for all providers (Ollama 120s, HF 60s, OpenAI/Anthropic 60s), Ollama pre-flight check, error truncation expanded to 200 chars, response bodies in errors. New test suites: `test_adversarial_efficacy.py` (38 tests) and `test_e2e_scenarios.py` (28 steps). |
+| 2.3.1 | 2026-02-18 | Scan history persistence, fuzz/MCP detector files, scan flag passthrough, AttackVector enums, type handling fixes. |
+| 2.3.0 | 2026-02-17 | Enterprise features: runtime enforcement layer, MCP security scanning, agentic fuzz testing, AIBOM, tool manifest signing, 12 new API endpoints, 6 new dashboard tabs. OWASP AI Exchange + MCP Security Guide alignment. |
+| 2.2.0 | 2026-02 | Scan-from-agent bridge, Azure OpenAI, OWASP alignment (crescendo + evasion), context fields |
+| 2.1.0 | 2026-02 | Real detection: all 20 detectors query live LLMs, capability-based checks, scan_mode metadata |
+| 2.0.0 | 2026-01 | Initial v2 with OWASP Agentic Top 10 coverage |

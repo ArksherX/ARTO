@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.types import ThreatDetectionResult, LLMThreat, RiskLevel, AttackVector
-from integrations.llm_adapter import LLMAdapter
+from detectors.common import get_llm_adapter
 
 # PII detection patterns
 PII_PATTERNS = {
@@ -51,8 +51,7 @@ def detect(target: Any, config: Any) -> ThreatDetectionResult:
     print("  🔍 Testing sensitive data exposure...")
     
     try:
-        # Get LLM adapter
-        llm = _get_llm_adapter(target)
+        llm = get_llm_adapter(target)
         
         # Test data extraction
         leaked_data = []
@@ -124,19 +123,6 @@ def detect(target: Any, config: Any) -> ThreatDetectionResult:
             description=f"Detection error: {str(e)[:100]}",
             owasp_category="LLM02:2025 Sensitive Information Disclosure"
         )
-
-def _get_llm_adapter(target: Any) -> LLMAdapter:
-    """Get LLM adapter"""
-    if isinstance(target, LLMAdapter):
-        return target
-    
-    if isinstance(target, dict):
-        provider = target.get('provider', 'mock')
-        model = target.get('model', 'gpt-3.5-turbo')
-        api_key = target.get('api_key')
-        return LLMAdapter(provider=provider, model=model, api_key=api_key)
-    
-    return LLMAdapter(provider="mock", model="mock")
 
 def _detect_pii_patterns(text: str) -> List[Dict[str, str]]:
     """Detect PII patterns in text"""

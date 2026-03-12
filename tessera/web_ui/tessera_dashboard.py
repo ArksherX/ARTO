@@ -14,11 +14,18 @@ import json
 import csv
 import io
 import time
+import re
+import secrets
 from pathlib import Path
 from datetime import datetime, timedelta
+import urllib.request
 from urllib import request as urllib_request
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# Ensure secret key is available (same default as api_server.py for dev/demo)
+if not os.getenv('TESSERA_SECRET_KEY'):
+    os.environ['TESSERA_SECRET_KEY'] = '168595de6449925806d7b448d132a5ec6290cb0ce31f253826c2694586f05c0d21518555e12dc87de7088820e215aa2505008d87d8a64ce03f2cad74d8484b06'
 
 # Import Tessera modules
 try:
@@ -203,7 +210,17 @@ def initialize_state():
         os.environ.setdefault("TESSERA_REQUIRE_DPOP", "false")
         os.environ.setdefault("TESSERA_REQUIRE_MEMORY_BINDING", "false")
 
-        st.session_state.token_gen = TokenGenerator(st.session_state.registry)
+        try:
+            st.session_state.token_gen = TokenGenerator(st.session_state.registry)
+        except ValueError as exc:
+            # Dashboard must remain operable in local/dev environments even when
+            # shell env leaks a short secret. Keep strict behavior for production.
+            if "TESSERA_SECRET_KEY must be at least 64 bytes" in str(exc):
+                os.environ["TESSERA_STRICT_SECRET_KEY"] = "false"
+                os.environ["TESSERA_SECRET_KEY"] = secrets.token_hex(64)
+                st.session_state.token_gen = TokenGenerator(st.session_state.registry)
+            else:
+                raise
         st.session_state.revocation_list = RevocationList()
         st.session_state.gatekeeper = Gatekeeper(
             st.session_state.token_gen,
@@ -552,13 +569,110 @@ if mode == "📊 Dashboard":
 elif mode == "🤖 Agent Registry":
     st.header("🤖 Registered AI Agents")
     st.caption("This registry is the source of truth for identity/JIT tokens and can be imported into VerityFlux from its 'Import from Tessera' tab.")
-    
+
+    # --- 1) Single-agent registration form ---
+    with st.expander("➕ Register Single Agent", expanded=False):
+        with st.form("register_single_agent_form"):
+            c1, c2 = st.columns(2)
+            with c1:
+                reg_agent_id = st.text_input("Agent ID", placeholder="agent_data_analyst_01")
+                reg_owner = st.text_input("Owner", placeholder="SecurityOps")
+                reg_tenant = st.text_input("Tenant ID", value="default")
+                reg_status = st.selectbox("Status", ["active", "suspended", "blacklisted"], index=0)
+            with c2:
+                reg_tools = st.text_area(
+                    "Allowed Tools (comma-separated)",
+                    placeholder="read_file, query_sql, send_email",
+                    height=108,
+                )
+                reg_ttl = st.number_input("Max Token TTL (seconds)", min_value=60, max_value=86400, value=3600, step=60)
+                reg_risk = st.slider("Risk Threshold", 0, 100, 50)
+
+            submit_single = st.form_submit_button("Register / Update Agent", type="primary")
+            if submit_single:
+                if not reg_agent_id.strip() or not reg_owner.strip():
+                    st.error("`agent_id` and `owner` are required.")
+                else:
+                    tools = [t.strip() for t in reg_tools.split(",") if t.strip()]
+                    payload = {
+                        "agent_id": reg_agent_id.strip(),
+                        "owner": reg_owner.strip(),
+                        "tenant_id": reg_tenant.strip() or "default",
+                        "allowed_tools": tools,
+                        "max_token_ttl": int(reg_ttl),
+                        "risk_threshold": int(reg_risk),
+                    }
+                    # API-first so running Tessera API and UI stay in sync.
+                    api_ok = False
+                    try:
+                        tessera_api = os.getenv("TESSERA_API_BASE", "http://localhost:8001")
+                        req = urllib.request.Request(
+                            f"{tessera_api}/agents/register",
+                            data=json.dumps(payload).encode("utf-8"),
+                            headers={"Content-Type": "application/json"},
+                            method="POST",
+                        )
+                        with urllib.request.urlopen(req, timeout=5):
+                            api_ok = True
+                    except Exception as exc:
+                        st.warning(f"API sync unavailable; applying locally. ({str(exc)[:100]})")
+
+                    agent = st.session_state.registry.register_agent(
+                        agent_id=payload["agent_id"],
+                        owner=payload["owner"],
+                        allowed_tools=payload["allowed_tools"],
+                        tenant_id=payload["tenant_id"],
+                        max_token_ttl=payload["max_token_ttl"],
+                        risk_threshold=payload["risk_threshold"],
+                    )
+                    if reg_status != "active":
+                        st.session_state.registry.update_agent_status(agent.agent_id, reg_status, reason="Set from Agent Registry form")
+                    add_local_event("AGENT_REGISTERED", payload["agent_id"], "registry", "SUCCESS", f"owner={payload['owner']} status={reg_status}")
+                    st.success(f"Agent saved: `{payload['agent_id']}`" + (" (API + local)" if api_ok else " (local fallback)"))
+
+    st.markdown("---")
+
+    # --- 2) Test/demo filtering + cleanup ---
+    TEST_AGENT_RE = re.compile(r"^(parent-|sub-|e2e-|test-|bench-|adversarial-|demo-)", re.IGNORECASE)
+    show_test_agents = st.checkbox("Show Test/Demo Agents", value=False)
+    hide_suspended = st.checkbox("Hide Non-Active Agents", value=False)
+
     agents = st.session_state.registry.list_agents()
-    
+    filtered_agents = []
+    for a in agents:
+        if not show_test_agents and TEST_AGENT_RE.match(a.agent_id or ""):
+            continue
+        if hide_suspended and str(a.status).lower() != "active":
+            continue
+        filtered_agents.append(a)
+
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        st.caption(f"Showing {len(filtered_agents)} of {len(agents)} agents.")
+    with c2:
+        purge_test = st.checkbox("Enable Test-Agent Cleanup", value=False, key="purge_test_agents_enable")
+    if purge_test:
+        test_ids = [a.agent_id for a in agents if TEST_AGENT_RE.match(a.agent_id or "")]
+        st.warning(f"{len(test_ids)} test/demo agents detected.")
+        if test_ids:
+            st.code("\n".join(test_ids[:30]), language="text")
+        if st.button("🧹 Clear Test/Demo Agents", type="primary", disabled=not bool(test_ids)):
+            removed = 0
+            for aid in list(test_ids):
+                if st.session_state.registry.delete_agent(aid):
+                    removed += 1
+            if removed:
+                persist_registry()
+                add_local_event("AGENT_TEST_CLEANUP", "SYSTEM", "registry", "SUCCESS", f"removed={removed}")
+            st.success(f"Removed {removed} test/demo agents.")
+            st.rerun()
+
     if not agents:
         st.info("No agents registered yet")
     else:
-        for agent in agents:
+        if not filtered_agents:
+            st.info("No agents match the current filters.")
+        for agent in filtered_agents:
             with st.expander(f"🤖 {agent.agent_id} | {agent.owner}"):
                 col1, col2 = st.columns(2)
                 
@@ -845,17 +959,51 @@ elif mode == "📤 Bulk Uploads":
                 if st.button("Apply Agent Upload", type="primary", disabled=not apply_changes):
                     updated = 0
                     created = 0
+                    api_errors = []
+                    tessera_api = os.getenv("TESSERA_API_BASE", "http://localhost:8001")
                     for row in rows:
-                        existing = st.session_state.registry.get_agent(row["agent_id"])
-                        agent = AgentIdentity(**row)
-                        if existing:
-                            updated += 1
-                        else:
-                            created += 1
-                        st.session_state.registry.agents[row["agent_id"]] = agent
+                        # Use API for registration (keeps API server in sync)
+                        try:
+                            payload = json.dumps({
+                                "agent_id": row["agent_id"],
+                                "owner": row["owner"],
+                                "allowed_tools": row.get("allowed_tools", []),
+                                "tenant_id": row.get("tenant_id", "default"),
+                                "max_token_ttl": int(row.get("max_token_ttl", 3600)),
+                                "risk_threshold": int(row.get("risk_threshold", 50)),
+                            }).encode("utf-8")
+                            req = urllib.request.Request(
+                                f"{tessera_api}/agents/register",
+                                data=payload,
+                                headers={"Content-Type": "application/json"},
+                                method="POST",
+                            )
+                            with urllib.request.urlopen(req, timeout=5) as resp:
+                                result = json.loads(resp.read().decode("utf-8"))
+                            if result.get("agent_id"):
+                                existing = st.session_state.registry.get_agent(row["agent_id"])
+                                if existing:
+                                    updated += 1
+                                else:
+                                    created += 1
+                                # Sync local registry too
+                                agent = AgentIdentity(**row)
+                                st.session_state.registry.agents[row["agent_id"]] = agent
+                        except Exception as e:
+                            api_errors.append(f"{row['agent_id']}: {str(e)[:60]}")
+                            # Fallback: direct registry manipulation
+                            existing = st.session_state.registry.get_agent(row["agent_id"])
+                            agent = AgentIdentity(**row)
+                            if existing:
+                                updated += 1
+                            else:
+                                created += 1
+                            st.session_state.registry.agents[row["agent_id"]] = agent
                     persist_registry()
                     add_local_event("AGENT_REGISTRY_BULK_UPLOAD", "SYSTEM", "registry_upload", "SUCCESS", f"created={created}, updated={updated}")
                     st.success(f"Applied upload: created {created}, updated {updated}.")
+                    if api_errors:
+                        st.warning(f"API sync issues (fell back to file): {'; '.join(api_errors[:3])}")
             except Exception as e:
                 st.error(f"Upload validation failed: {e}")
                 st.info("Fix schema/values and retry.")
