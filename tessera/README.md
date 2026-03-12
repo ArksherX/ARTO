@@ -1,6 +1,6 @@
 # 🛡️ Tessera IAM - Complete Setup & Enhancement Guide
 
-![CI](https://github.com/your-org/your-repo/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/ArksherX/ARTO/actions/workflows/ci.yml/badge.svg)
 
 ## 📋 Implementation Checklist
 
@@ -9,6 +9,24 @@
 ```
 pytest tests -v
 ```
+
+## Runtime controls (ops-safe defaults)
+
+Key environment toggles:
+- `TESSERA_REQUIRE_ACTION_SIGNATURE=true|false`
+- `TESSERA_ACTION_REPLAY_TTL=300` (seconds)
+- `TESSERA_MEMORY_TTL_MAX=3600` (seconds)
+- `TESSERA_REQUIRE_TRUSTED_CONTEXT=true|false`
+- `TESSERA_TRUSTED_CONTEXT_LEVELS=trusted,internal`
+- `TOOL_ALLOWLIST=tool_a,tool_b`
+- `TOOL_REGISTRY_ENFORCE=true|false`
+- `TOOL_REGISTRY_SIGNING_KEY=...`
+- `TESSERA_DELEGATION_TTL_SECONDS=300`
+- `TESSERA_AUDIT_RETENTION_DAYS=30` (prunes old audit entries on startup)
+
+Audit endpoints (admin key required):
+- `GET /audit/export?limit=500&since=...&verify=true`
+- `POST /audit/prune` with `{ "retention_days": 30 }`
 
 Current coverage highlights:
 - Token generation and validation (HS512, DPoP, nonce replay)

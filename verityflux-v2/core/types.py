@@ -31,6 +31,13 @@ class AttackVector(str, Enum):
     RESOURCE_EXHAUSTION = "resource_exhaustion"
     TOOL_ABUSE = "tool_abuse"
     INTERAGENT_COMM = "interagent_communication"
+    GOAL_HIJACKING = "goal_hijacking"
+    SOCIAL_ENGINEERING = "social_engineering"
+    WORKFLOW_MANIPULATION = "workflow_manipulation"
+    CONFUSED_DEPUTY = "confused_deputy"
+    TOOL_POISONING = "tool_poisoning"
+    PRIVILEGE_ESCALATION = "privilege_escalation"
+    RUG_PULL = "rug_pull"
 
 class LLMThreat(str, Enum):
     """OWASP LLM Top 10 2025"""
@@ -58,6 +65,19 @@ class AgenticThreat(str, Enum):
     AAI09_CASCADING_FAILURES = "aai09_cascading_failures"
     AAI10_ROGUE_AGENTS = "aai10_rogue_agents"
 
+class FuzzThreat(str, Enum):
+    """Agentic Workflow Fuzzing Threats"""
+    FUZZ01_CONFLICTING_GOALS = "fuzz01_conflicting_goals"
+    FUZZ02_APPROVAL_BYPASS = "fuzz02_approval_bypass"
+    FUZZ03_SEQUENCE_BREAK = "fuzz03_sequence_break"
+
+class MCPThreat(str, Enum):
+    """MCP Security Threats (OWASP MCP Guide 2026)"""
+    MCP01_CONFUSED_DEPUTY = "mcp01_confused_deputy"
+    MCP02_TOOL_POISONING = "mcp02_tool_poisoning"
+    MCP03_CROSS_TOOL_CHAIN = "mcp03_cross_tool_chain"
+    MCP04_DYNAMIC_INSTABILITY = "mcp04_dynamic_instability"
+
 # ============================================================================
 # DATA CLASSES
 # ============================================================================
@@ -75,12 +95,15 @@ class ThreatDetectionResult:
     recommendations: List[str] = field(default_factory=list)
     owasp_category: str = ""
     cwe_ids: List[str] = field(default_factory=list)
+    scan_mode: str = "unknown"  # "real", "mock", or "partial"
 
 @dataclass
 class ScanConfig:
     """Configuration for security scans"""
     scan_llm_threats: bool = True
     scan_agentic_threats: bool = True
+    scan_fuzz_threats: bool = False
+    scan_mcp_threats: bool = False
     max_test_samples: int = 10
     timeout_seconds: int = 30
     verbose: bool = False
@@ -92,30 +115,36 @@ class SecurityReport:
     scan_timestamp: datetime
     llm_threats: List[ThreatDetectionResult] = field(default_factory=list)
     agentic_threats: List[ThreatDetectionResult] = field(default_factory=list)
+    fuzz_threats: List[ThreatDetectionResult] = field(default_factory=list)
+    mcp_threats: List[ThreatDetectionResult] = field(default_factory=list)
     overall_risk_score: float = 0.0
     scan_duration_seconds: float = 0.0
     detectors_run: List[str] = field(default_factory=list)
     
     @property
+    def all_threats(self) -> List['ThreatDetectionResult']:
+        return self.llm_threats + self.agentic_threats + self.fuzz_threats + self.mcp_threats
+
+    @property
     def total_threats(self) -> int:
         """Total number of detected threats"""
-        return sum(1 for t in self.llm_threats + self.agentic_threats if t.detected)
+        return sum(1 for t in self.all_threats if t.detected)
     
     @property
     def critical_threats(self) -> int:
         """Number of critical threats"""
-        return sum(1 for t in self.llm_threats + self.agentic_threats 
+        return sum(1 for t in self.all_threats
                   if t.detected and t.risk_level == RiskLevel.CRITICAL)
-    
+
     @property
     def high_threats(self) -> int:
         """Number of high-risk threats"""
-        return sum(1 for t in self.llm_threats + self.agentic_threats 
+        return sum(1 for t in self.all_threats
                   if t.detected and t.risk_level == RiskLevel.HIGH)
     
     def calculate_risk_score(self):
         """Calculate overall risk score (0-100)"""
-        all_threats = self.llm_threats + self.agentic_threats
+        all_threats = self.all_threats
         
         if not all_threats:
             self.overall_risk_score = 0.0
@@ -144,6 +173,8 @@ __all__ = [
     'AttackVector',
     'LLMThreat',
     'AgenticThreat',
+    'FuzzThreat',
+    'MCPThreat',
     'ThreatDetectionResult',
     'ScanConfig',
     'SecurityReport',

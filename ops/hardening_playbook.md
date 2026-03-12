@@ -16,6 +16,8 @@
   - Vestigia: `VESTIGIA_API_KEY`, `VESTIGIA_SECRET_SALT`, DB credentials
   - VerityFlux: API keys/JWT secrets
 
+Reference env list: `ops/secrets_env.md`
+
 Rotation procedure (safe, low risk):
 1. Add new secret in vault.
 2. Roll service with new secret while old remains accepted.
@@ -57,10 +59,14 @@ Recommended:
 - Use WAF rules for API endpoints.
 - Restrict admin endpoints by IP or VPN.
 
+Local TLS helper:
+```
+./ops/gen_local_tls.sh
+```
+
 ---
 
 ## 6) Operational Checklists
 - Pre-deploy: dependencies pinned, secrets in vault, ports verified.
 - Deploy: rolling restart, verify health endpoints.
 - Post-deploy: run integration smoke test + reliability checks.
-

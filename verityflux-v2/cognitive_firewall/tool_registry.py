@@ -13,11 +13,12 @@ from typing import Dict, Any, List, Optional
 class ToolRegistry:
     """
     Maintains trusted tool manifests and detects schema violations.
-    
+
     Addresses AAI07 (Agentic Supply Chain).
     """
-    
-    def __init__(self):
+
+    def __init__(self, manifest_signer=None):
+        self.manifest_signer = manifest_signer
         # Known-good tool manifests
         self.tool_manifests = {
             'weather_api': {
@@ -93,9 +94,20 @@ class ToolRegistry:
         if self._detects_scope_escalation(parameters, manifest):
             violations.append("Tool attempting to access beyond defined scope")
         
+        # Check 4: Cryptographic signature verification (if signer available)
+        if self.manifest_signer:
+            baseline = self.manifest_signer.get_baseline(tool_name)
+            if baseline:
+                ver_result = self.manifest_signer.verify_manifest(baseline)
+                if not ver_result.valid:
+                    violations.append(f"Signature verification failed: {ver_result.reason}")
+                # Rug-pull detection
+                if self.manifest_signer.detect_rug_pull(tool_name, manifest):
+                    violations.append("Rug-pull detected: manifest changed from signed baseline")
+
         verified = len(violations) == 0
         risk_score = len(violations) * 30
-        
+
         return {
             'verified': verified,
             'violations': violations,

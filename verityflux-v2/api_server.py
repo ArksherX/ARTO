@@ -16,7 +16,6 @@ from core.types import ScanConfig
 from cognitive_firewall import (
     CompleteSecurityStack,
     AgentAction,
-    SandboxBackend
 )
 
 app = Flask(__name__)
@@ -32,12 +31,7 @@ scanner = VerityFluxScanner(
 )
 
 # Initialize complete security stack
-firewall = CompleteSecurityStack(
-    enable_flight_recorder=True,
-    enable_mcp_sentry=True,
-    enable_sandbox=False,  # Disabled by default
-    sandbox_backend=SandboxBackend.NONE
-)
+firewall = CompleteSecurityStack()
 
 @app.route('/')
 def home():

@@ -15,10 +15,11 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
 import os
-from dotenv import load_dotenv
-
-# Load environment
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # Add VerityFlux to path
 VERITYFLUX_PATH = os.getenv('VERITYFLUX_PATH', '../verityflux-v2')
@@ -99,7 +100,8 @@ class TesseraVerityFluxBridge:
         parameters: Dict[str, Any],
         reasoning_chain: list,
         original_goal: str,
-        context: Optional[Dict] = None
+        context: Optional[Dict] = None,
+        sandbox_attested: Optional[bool] = None,
     ) -> IntegratedResult:
         """
         Validate an agent action through both security layers.
@@ -117,6 +119,8 @@ class TesseraVerityFluxBridge:
             IntegratedResult with final decision
         """
         context = context or {}
+        if sandbox_attested is None:
+            sandbox_attested = context.get("sandbox_attested")
         
         # ========================================
         # LAYER 1: TESSERA IDENTITY VALIDATION
@@ -125,7 +129,11 @@ class TesseraVerityFluxBridge:
         print(f"   Agent: {agent_id}")
         print(f"   Tool: {tool_name}")
         
-        tessera_result = self.gatekeeper.validate_access(token, tool_name)
+        tessera_result = self.gatekeeper.validate_access(
+            token,
+            tool_name,
+            sandbox_attested=sandbox_attested,
+        )
         
         if tessera_result.decision != AccessDecision.ALLOW:
             print(f"   ❌ DENIED by Tessera: {tessera_result.reason}")

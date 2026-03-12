@@ -14,7 +14,8 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.types import (
-    LLMThreat, AgenticThreat, SecurityReport, ScanConfig, ThreatDetectionResult
+    LLMThreat, AgenticThreat, FuzzThreat, MCPThreat,
+    SecurityReport, ScanConfig, ThreatDetectionResult
 )
 
 class VerityFluxScanner:
@@ -82,7 +83,23 @@ class VerityFluxScanner:
             agentic_results = self._scan_agentic_threats(target)
             report.agentic_threats = agentic_results
             report.detectors_run.extend([f"AAI{i:02d}" for i in range(1, 11)])
-        
+
+        # Scan Fuzz threats
+        if self.config.scan_fuzz_threats:
+            print("\n🧪 AGENTIC WORKFLOW FUZZING")
+            print("-" * 70)
+            fuzz_results = self._scan_fuzz_threats(target)
+            report.fuzz_threats = fuzz_results
+            report.detectors_run.extend([f"FUZZ{i:02d}" for i in range(1, 4)])
+
+        # Scan MCP threats
+        if self.config.scan_mcp_threats:
+            print("\n🔌 MCP SECURITY SCAN")
+            print("-" * 70)
+            mcp_results = self._scan_mcp_threats(target)
+            report.mcp_threats = mcp_results
+            report.detectors_run.extend([f"MCP{i:02d}" for i in range(1, 5)])
+
         # Finalize
         report.scan_duration_seconds = time.time() - start_time
         report.calculate_risk_score()
@@ -352,6 +369,75 @@ class VerityFluxScanner:
         except Exception as e:
             return self._create_error_result(AgenticThreat.AAI10_ROGUE_AGENTS, str(e))
     
+    # ========================================================================
+    # FUZZ THREAT DETECTORS
+    # ========================================================================
+
+    def _scan_fuzz_threats(self, target: Any) -> List[ThreatDetectionResult]:
+        """Scan agentic workflow fuzzing threats"""
+        results = []
+
+        print("[1/3] FUZZ01: Conflicting Goals...")
+        try:
+            from detectors.fuzz.fuzz01_conflicting_goals import detect
+            results.append(detect(target, self.config))
+        except Exception as e:
+            results.append(self._create_error_result(FuzzThreat.FUZZ01_CONFLICTING_GOALS, str(e)))
+
+        print("[2/3] FUZZ02: Approval Bypass...")
+        try:
+            from detectors.fuzz.fuzz02_approval_bypass import detect
+            results.append(detect(target, self.config))
+        except Exception as e:
+            results.append(self._create_error_result(FuzzThreat.FUZZ02_APPROVAL_BYPASS, str(e)))
+
+        print("[3/3] FUZZ03: Sequence Break...")
+        try:
+            from detectors.fuzz.fuzz03_sequence_break import detect
+            results.append(detect(target, self.config))
+        except Exception as e:
+            results.append(self._create_error_result(FuzzThreat.FUZZ03_SEQUENCE_BREAK, str(e)))
+
+        return results
+
+    # ========================================================================
+    # MCP THREAT DETECTORS
+    # ========================================================================
+
+    def _scan_mcp_threats(self, target: Any) -> List[ThreatDetectionResult]:
+        """Scan MCP security threats"""
+        results = []
+
+        print("[1/4] MCP01: Confused Deputy...")
+        try:
+            from detectors.mcp.mcp01_confused_deputy import detect
+            results.append(detect(target, self.config))
+        except Exception as e:
+            results.append(self._create_error_result(MCPThreat.MCP01_CONFUSED_DEPUTY, str(e)))
+
+        print("[2/4] MCP02: Tool Poisoning...")
+        try:
+            from detectors.mcp.mcp02_tool_poisoning import detect
+            results.append(detect(target, self.config))
+        except Exception as e:
+            results.append(self._create_error_result(MCPThreat.MCP02_TOOL_POISONING, str(e)))
+
+        print("[3/4] MCP03: Cross-Tool Chain...")
+        try:
+            from detectors.mcp.mcp03_cross_tool_chain import detect
+            results.append(detect(target, self.config))
+        except Exception as e:
+            results.append(self._create_error_result(MCPThreat.MCP03_CROSS_TOOL_CHAIN, str(e)))
+
+        print("[4/4] MCP04: Dynamic Instability...")
+        try:
+            from detectors.mcp.mcp04_dynamic_instability import detect
+            results.append(detect(target, self.config))
+        except Exception as e:
+            results.append(self._create_error_result(MCPThreat.MCP04_DYNAMIC_INSTABILITY, str(e)))
+
+        return results
+
     def _create_error_result(self, threat, error_msg: str) -> ThreatDetectionResult:
         """Create error result for failed detector"""
         from core.types import RiskLevel

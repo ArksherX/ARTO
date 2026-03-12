@@ -124,7 +124,8 @@ def detect(target: Any, config: Any) -> ThreatDetectionResult:
                 "Regularly audit model dependencies"
             ],
             owasp_category="LLM03:2025 Supply Chain Vulnerabilities",
-            cwe_ids=["CWE-494", "CWE-829"]
+            cwe_ids=["CWE-494", "CWE-829"],
+            scan_mode="static",
         )
     
     except Exception as e:

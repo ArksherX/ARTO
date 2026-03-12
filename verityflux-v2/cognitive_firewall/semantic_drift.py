@@ -7,6 +7,7 @@ over 10+ reasoning steps until destructive action looks "logical".
 """
 
 from typing import List, Dict, Any
+import re
 import numpy as np
 
 class SemanticDriftDetector:
@@ -87,9 +88,9 @@ class SemanticDriftDetector:
         if text in self.embedding_cache:
             return self.embedding_cache[text]
         
-        # Simplified embedding (in production, use actual sentence-transformers)
-        # This creates a basic semantic vector
-        words = text.lower().split()
+        # Simplified embedding with lexical hashing fallback.
+        # Keeps behavior deterministic while avoiding constant max drift for benign text.
+        words = re.findall(r"[a-z0-9_]+", text.lower())
         
         # Key semantic categories
         categories = {
@@ -103,10 +104,13 @@ class SemanticDriftDetector:
             'admin': ['admin', 'privilege', 'permission', 'access', 'authorize', 'grant']
         }
         
-        # Create embedding vector
-        embedding = np.zeros(len(categories))
+        # Create embedding vector (semantic categories + hashed lexical buckets)
+        lexical_buckets = 64
+        embedding = np.zeros(len(categories) + lexical_buckets)
         for i, (category, keywords) in enumerate(categories.items()):
             embedding[i] = sum(1 for word in words if word in keywords)
+        for word in words:
+            embedding[len(categories) + (hash(word) % lexical_buckets)] += 1.0
         
         # Normalize
         norm = np.linalg.norm(embedding)

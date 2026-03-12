@@ -46,7 +46,11 @@ def generate_keypair():
     if not os.path.exists('.env'):
         print("📝 Creating .env file...")
         with open('.env', 'w') as f:
-            f.write("TESSERA_SECRET_KEY=dev-secret-key-change-in-production\n")
+            f.write(
+                "TESSERA_SECRET_KEY="
+                "168595de6449925806d7b448d132a5ec6290cb0ce31f253826c2694586f05c0d"
+                "21518555e12dc87de7088820e215aa2505008d87d8a64ce03f2cad74d8484b06\n"
+            )
             f.write("KEY_PROVIDER=local\n")
         print("✅ .env file created")
 

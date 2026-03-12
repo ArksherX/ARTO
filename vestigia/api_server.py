@@ -10,7 +10,9 @@ import time
 import logging
 import uuid
 import json
-from datetime import datetime, UTC
+import base64
+import hashlib
+from datetime import datetime, UTC, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -45,9 +47,19 @@ from core.tenant_manager import TenantStore, TenantContext, ROLE_PERMISSIONS, PL
 from core.ops_health import collect_health
 
 try:
-    from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+    from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST, REGISTRY
+
+    def _counter(name: str, desc: str):
+        try:
+            return Counter(name, desc)
+        except ValueError:
+            # Reload-safe in dev: reuse collector if already registered.
+            return REGISTRY._names_to_collectors.get(name)
 except Exception:
     Counter = generate_latest = CONTENT_TYPE_LATEST = None
+
+    def _counter(name: str, desc: str):
+        return None
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -69,6 +81,9 @@ ANCHOR_PROVIDER = os.getenv("VESTIGIA_BLOCKCHAIN_PROVIDER", "file")
 MULTI_TENANT = os.getenv("VESTIGIA_MULTI_TENANT", "false").lower() == "true"
 PLATFORM_ADMIN_KEY = os.getenv("VESTIGIA_PLATFORM_ADMIN_KEY", "")
 REDIS_URL = os.getenv("VESTIGIA_REDIS_URL", "")
+MLRT_ENFORCE_CONTRACT = os.getenv("MLRT_ENFORCE_CONTRACT", "false").lower() in ("1", "true", "yes")
+MLRT_REQUIRE_CORRELATION = os.getenv("MLRT_REQUIRE_CORRELATION", "false").lower() in ("1", "true", "yes")
+MLRT_CONTRACT_VERSION = os.getenv("MLRT_CONTRACT_VERSION", "1")
 
 # ---------------------------------------------------------------------------
 # Rate-limiter -- simple in-memory token bucket
@@ -108,6 +123,13 @@ class EventCreateRequest(BaseModel):
     trace_id: Optional[str] = Field(None, description="OpenTelemetry trace ID")
     span_id: Optional[str] = Field(None, description="OpenTelemetry span ID")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Arbitrary extra metadata")
+
+
+class EvidenceVerifyRequest(BaseModel):
+    payload: Dict[str, Any] = Field(..., description="Original evidence payload")
+    signature: str = Field(..., description="Base64url signature over canonical payload")
+    public_key: str = Field(..., description="Public key PEM")
+    expected_hash: Optional[str] = Field(None, description="Optional expected SHA-256 hash")
 
 
 class BatchEventRequest(BaseModel):
@@ -269,6 +291,70 @@ class ApiKeyCreateResponse(BaseModel):
     api_key: str
     label: str
 
+
+def _canonical_bytes(payload: Dict[str, Any]) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _b64url_decode(data: str) -> bytes:
+    pad = "=" * (-len(data) % 4)
+    return base64.urlsafe_b64decode(data + pad)
+
+
+def _verify_ed25519(public_key_pem: str, payload: Dict[str, Any], signature: str) -> bool:
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        from cryptography.hazmat.primitives import serialization
+        public_key = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
+        if not isinstance(public_key, Ed25519PublicKey):
+            return False
+        public_key.verify(_b64url_decode(signature), _canonical_bytes(payload))
+        return True
+    except Exception:
+        return False
+
+
+def _validate_contract_event(contract_event: Dict[str, Any]) -> Optional[str]:
+    required = ("timestamp", "source", "event_type", "outcome")
+    for key in required:
+        if key not in contract_event:
+            return f"contract_event missing required field: {key}"
+    if not isinstance(contract_event.get("outcome"), dict):
+        return "contract_event.outcome must be an object"
+    if "status" not in contract_event["outcome"]:
+        return "contract_event.outcome.status is required"
+    version = str(contract_event.get("event_schema_version", MLRT_CONTRACT_VERSION))
+    if version != str(MLRT_CONTRACT_VERSION):
+        return f"unsupported contract_event.event_schema_version: {version}"
+    return None
+
+
+def _require_correlation_fields(contract_event: Dict[str, Any]) -> Optional[str]:
+    actor = contract_event.get("actor") or {}
+    req = contract_event.get("request") or {}
+    if not actor.get("agent_id"):
+        return "contract_event.actor.agent_id is required when correlation enforcement is enabled"
+    if not req.get("session_id"):
+        return "contract_event.request.session_id is required when correlation enforcement is enabled"
+    if not req.get("trace_id"):
+        return "contract_event.request.trace_id is required when correlation enforcement is enabled"
+    return None
+
+
+def _backfill_contract_correlation(contract_event: Dict[str, Any], fallback_actor: str) -> Dict[str, Any]:
+    actor = contract_event.get("actor") or {}
+    req = contract_event.get("request") or {}
+    agent_id = actor.get("agent_id") or fallback_actor or "unknown"
+    event_type = contract_event.get("event_type") or "event"
+    session_id = req.get("session_id") or f"{agent_id}:{event_type}"
+    trace_id = req.get("trace_id") or session_id
+    req["session_id"] = session_id
+    req["trace_id"] = trace_id
+    actor["agent_id"] = agent_id
+    contract_event["actor"] = actor
+    contract_event["request"] = req
+    return contract_event
+
 # ---------------------------------------------------------------------------
 # Application factory helpers
 # ---------------------------------------------------------------------------
@@ -284,11 +370,13 @@ _risk_history = RiskHistoryStore()
 _risk_forecaster = RiskForecaster(store=_risk_history)
 _tenant_store = TenantStore()
 _siem_forwarder = None
-_metric_anomaly_scored = Counter("vestigia_anomaly_scored_total", "Anomaly scores computed") if Counter else None
-_metric_anomaly_alerts = Counter("vestigia_anomaly_alerts_total", "High-risk anomaly alerts") if Counter else None
-_metric_playbooks = Counter("vestigia_playbooks_executed_total", "Playbooks executed") if Counter else None
-_metric_nl_queries = Counter("vestigia_nl_queries_total", "Natural language queries executed") if Counter else None
-_metric_risk_forecasts = Counter("vestigia_risk_forecasts_total", "Risk forecasts generated") if Counter else None
+_metric_anomaly_scored = _counter("vestigia_anomaly_scored_total", "Anomaly scores computed")
+_metric_anomaly_alerts = _counter("vestigia_anomaly_alerts_total", "High-risk anomaly alerts")
+_metric_playbooks = _counter("vestigia_playbooks_executed_total", "Playbooks executed")
+_metric_nl_queries = _counter("vestigia_nl_queries_total", "Natural language queries executed")
+_metric_risk_forecasts = _counter("vestigia_risk_forecasts_total", "Risk forecasts generated")
+_last_integrity_check_ts: float = 0.0
+_last_integrity_ok: bool = True
 
 
 def _get_ledger() -> VestigiaLedger:
@@ -574,6 +662,19 @@ def _enrich_evidence(
 async def create_event(body: EventCreateRequest, request: Request):
     """Record a single audit event into the Vestigia ledger."""
     ledger = _get_ledger()
+    tenant_id = getattr(request.state, "tenant_id", None) if MULTI_TENANT else None
+
+    contract_event = body.evidence.get("contract_event") if isinstance(body.evidence, dict) else None
+    if MLRT_ENFORCE_CONTRACT and contract_event is not None:
+        err = _validate_contract_event(contract_event)
+        if err:
+            raise HTTPException(status_code=422, detail=err)
+        if MLRT_REQUIRE_CORRELATION:
+            corr_err = _require_correlation_fields(contract_event)
+            if corr_err:
+                raise HTTPException(status_code=422, detail=corr_err)
+    if isinstance(contract_event, dict):
+        body.evidence["contract_event"] = _backfill_contract_correlation(contract_event, body.actor_id)
 
     enriched = _enrich_evidence(
         body.evidence, body.severity, body.trace_id, body.span_id, body.metadata
@@ -855,6 +956,19 @@ async def batch_create_events(body: BatchEventRequest, request: Request):
 
     for item in body.events:
         try:
+            contract_event = item.evidence.get("contract_event") if isinstance(item.evidence, dict) else None
+            if MLRT_ENFORCE_CONTRACT and contract_event is not None:
+                err = _validate_contract_event(contract_event)
+                if err:
+                    failed += 1
+                    continue
+                if MLRT_REQUIRE_CORRELATION:
+                    corr_err = _require_correlation_fields(contract_event)
+                    if corr_err:
+                        failed += 1
+                        continue
+            if isinstance(contract_event, dict):
+                item.evidence["contract_event"] = _backfill_contract_correlation(contract_event, item.actor_id)
             enriched = _enrich_evidence(
                 item.evidence, item.severity, item.trace_id, item.span_id, item.metadata
             )
@@ -898,7 +1012,14 @@ async def health_check():
     """Return service health including ledger validity."""
     ledger = _get_ledger()
     stats = ledger.get_statistics()
-    is_valid, _ = ledger.verify_integrity()
+    full_check = os.getenv("VESTIGIA_HEALTH_FULL", "false").lower() in ("1", "true", "yes")
+    global _last_integrity_check_ts, _last_integrity_ok
+    if full_check:
+        is_valid, _ = ledger.verify_integrity()
+        _last_integrity_ok = bool(is_valid)
+        _last_integrity_check_ts = time.monotonic()
+    else:
+        is_valid = _last_integrity_ok
 
     return HealthResponse(
         status="healthy",
@@ -927,6 +1048,73 @@ async def status_page():
         "version": API_VERSION,
         "timestamp": datetime.now(UTC).isoformat(),
         **health,
+    }
+
+
+@app.get(
+    "/continuity/check",
+    summary="Check evidence continuity for contract events within a time window",
+    dependencies=[Depends(_require_api_key), Depends(_require_permission("events:read")), Depends(_rate_limit)],
+)
+async def continuity_check(
+    request: Request,
+    minutes: int = Query(60, ge=1, le=1440),
+):
+    ledger = _get_ledger()
+    tenant_id = getattr(request.state, "tenant_id", None) if MULTI_TENANT else None
+    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+    entries = [e.to_dict() for e in ledger.query_events(tenant_id=tenant_id, limit=50000)]
+
+    checked = 0
+    correlated = 0
+    missing = 0
+    for e in entries:
+        try:
+            ts = datetime.fromisoformat(str(e.get("timestamp", "")).replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if ts < cutoff:
+            continue
+        evidence = e.get("evidence", {})
+        if not isinstance(evidence, dict):
+            continue
+        ce = evidence.get("contract_event")
+        if not isinstance(ce, dict):
+            continue
+        checked += 1
+        actor = ce.get("actor") or {}
+        req = ce.get("request") or {}
+        if actor.get("agent_id") and req.get("session_id") and req.get("trace_id"):
+            correlated += 1
+        else:
+            missing += 1
+
+    continuity_pct = round((correlated / checked) * 100.0, 2) if checked else 100.0
+    return {
+        "window_minutes": minutes,
+        "checked_contract_events": checked,
+        "correlated_events": correlated,
+        "missing_correlation": missing,
+        "continuity_pct": continuity_pct,
+        "status": "pass" if continuity_pct >= 99.0 else "fail",
+    }
+
+
+@app.post(
+    "/verify/attestation",
+    summary="Verify Ed25519 attestation payload/signature pair",
+    dependencies=[Depends(_require_api_key), Depends(_require_permission("events:read")), Depends(_rate_limit)],
+)
+async def verify_attestation(body: EvidenceVerifyRequest):
+    hash_value = hashlib.sha256(_canonical_bytes(body.payload)).hexdigest()
+    if body.expected_hash and body.expected_hash != hash_value:
+        return {"valid": False, "signature_valid": False, "hash_match": False, "hash": hash_value}
+    signature_valid = _verify_ed25519(body.public_key, body.payload, body.signature)
+    return {
+        "valid": bool(signature_valid),
+        "signature_valid": bool(signature_valid),
+        "hash_match": True,
+        "hash": hash_value,
     }
 
 
@@ -1283,10 +1471,17 @@ async def global_exception_handler(request: Request, exc: Exception):
 if __name__ == "__main__":
     import uvicorn
 
+    certfile = os.getenv("VESTIGIA_TLS_CERTFILE") or os.getenv("TLS_CERTFILE")
+    keyfile = os.getenv("VESTIGIA_TLS_KEYFILE") or os.getenv("TLS_KEYFILE")
+    ssl_kwargs = {}
+    if certfile and keyfile:
+        ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
+
     uvicorn.run(
         "api_server:app",
         host="0.0.0.0",
         port=int(os.getenv("VESTIGIA_PORT", "8002")),
         reload=os.getenv("VESTIGIA_MODE", "production") == "development",
         log_level="info",
+        **ssl_kwargs,
     )

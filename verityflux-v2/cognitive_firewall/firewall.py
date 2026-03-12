@@ -39,6 +39,11 @@ import weakref
 # Ensure parent directory is in path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Context trust requirements (opt-in)
+REQUIRE_TRUSTED_CONTEXT = os.getenv("VERITYFLUX_REQUIRE_TRUSTED_CONTEXT", "false").lower() in ("1", "true", "yes")
+_trusted_ctx_env = os.getenv("VERITYFLUX_TRUSTED_CONTEXT_LEVELS", "trusted,internal")
+TRUSTED_CONTEXT_LEVELS = {t.strip().lower() for t in _trusted_ctx_env.split(",") if t.strip()}
+
 
 # =============================================================================
 # ENUMS AND DATA CLASSES
@@ -1474,9 +1479,17 @@ class EnhancedCognitiveFirewall:
         else:
             self.multi_tenant_manager = None
         
+        # Initialize stateful intent tracker
+        try:
+            from .stateful_intent_tracker import StatefulIntentTracker
+            self.intent_tracker = StatefulIntentTracker()
+            print("  📊 Stateful intent tracker initialized")
+        except Exception:
+            self.intent_tracker = None
+
         # Initialize health checker
         self.health_checker = HealthCheck(self)
-        
+
         # Performance counters
         Path('metrics').mkdir(exist_ok=True)
         self.request_counter = AtomicCounter(file_path=Path('metrics/request_count.txt'))
@@ -1514,6 +1527,25 @@ class EnhancedCognitiveFirewall:
                     reasoning="Invalid input detected",
                     context={'input_validation_failed': True}
                 )
+
+            # Step 1b: Context trust check (opt-in)
+            if REQUIRE_TRUSTED_CONTEXT:
+                ctx = agent_action.context or {}
+                trust_level = (ctx.get("trust_level") or ctx.get("source_trust") or ctx.get("trust") or "").lower()
+                if not trust_level:
+                    return self._create_block_decision(
+                        risk_score=90.0,
+                        violations=["Missing context trust level"],
+                        reasoning="Untrusted context",
+                        context={"context_trust": "missing"}
+                    )
+                if trust_level not in TRUSTED_CONTEXT_LEVELS:
+                    return self._create_block_decision(
+                        risk_score=90.0,
+                        violations=[f"Untrusted context level: {trust_level}"],
+                        reasoning="Untrusted context",
+                        context={"context_trust": trust_level}
+                    )
             
             # Step 2: Multi-tenant validation
             if self.multi_tenant_enabled:
