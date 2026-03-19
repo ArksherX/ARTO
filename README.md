@@ -158,6 +158,7 @@ Playbooks:
 - `ops/reliability_checks.md`
 - `ops/blackhat_submission_pack.md`
 - `ops/production_readiness_gate.md`
+- `ops/run_production_readiness.sh`
 - `ops/commercial_packaging_outline.md`
 - `preflight_check.py` (called by `launch_suite.sh` before startup)
 
