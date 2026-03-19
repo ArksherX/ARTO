@@ -76,6 +76,7 @@ ARTEMIS/
 
 # purge staging
 /_purge/
+/ops/evidence/
 
 # Non-public docs/artifacts
 CFP_*.txt
