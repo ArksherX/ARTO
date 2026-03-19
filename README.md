@@ -157,6 +157,8 @@ Playbooks:
 - `ops/hardening_playbook.md`
 - `ops/reliability_checks.md`
 - `ops/blackhat_submission_pack.md`
+- `ops/production_readiness_gate.md`
+- `ops/commercial_packaging_outline.md`
 - `preflight_check.py` (called by `launch_suite.sh` before startup)
 
 ---
@@ -204,3 +206,9 @@ A GitHub Actions workflow spins up the local stack and runs the E2E smoke + reli
 
 ## License
 Apache-2.0. See `LICENSE`.
+
+## Contributing
+See `CONTRIBUTING.md`.
+
+## Notice
+See `NOTICE`.
