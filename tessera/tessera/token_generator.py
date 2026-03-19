@@ -8,6 +8,7 @@ import secrets
 import hashlib
 import json
 import base64
+import time
 from datetime import datetime, timedelta, UTC
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
@@ -312,16 +313,23 @@ class TokenGenerator:
         max_age_seconds: int = 60
     ) -> bool:
         """Validate DPoP proof JWT against required thumbprint."""
+        debug = os.getenv("TESSERA_DPOP_DEBUG", "false").lower() in ("1", "true", "yes")
+        def _dbg(msg: str) -> None:
+            if debug:
+                print(f"[dpop] {msg}")
         try:
             header = jwt.get_unverified_header(dpop_proof)
             alg = header.get("alg", "").upper()
             if alg.lower() == "none" or alg not in self.ALLOWED_DPOP_ALGORITHMS:
+                _dbg(f"unsupported alg={alg}")
                 return False
             jwk = header.get("jwk")
             if not jwk:
+                _dbg("missing jwk header")
                 return False
             computed_jkt = self.compute_jwk_thumbprint(jwk)
             if computed_jkt != required_jkt:
+                _dbg(f"jkt mismatch expected={required_jkt} got={computed_jkt}")
                 return False
 
             if jwk.get("kty") == "RSA":
@@ -343,16 +351,20 @@ class TokenGenerator:
             )
 
             if expected_htm and payload.get("htm", "").upper() != expected_htm.upper():
+                _dbg(f"htm mismatch expected={expected_htm} got={payload.get('htm')}")
                 return False
             if expected_htu and payload.get("htu") != expected_htu:
+                _dbg(f"htu mismatch expected={expected_htu} got={payload.get('htu')}")
                 return False
 
             iat = int(payload.get("iat"))
-            now = int(datetime.utcnow().timestamp())
+            now = int(time.time())
             if abs(now - iat) > max_age_seconds:
+                _dbg(f"iat delta too large now={now} iat={iat} max={max_age_seconds}")
                 return False
             return True
         except Exception:
+            _dbg("exception during dpop validation")
             return False
 
 # ============================================================================

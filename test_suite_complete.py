@@ -182,14 +182,20 @@ def request_token(agent_id: str, tool: str, duration_minutes: int = 5, role: str
     return post(f"{TESSERA_URL}/tokens/request", _token_payload(agent_id, tool, duration_minutes, role))
 
 
-def validate_token(token: str, tool: str):
+def validate_token(token: str, tool: str, sandbox_attested: bool = True):
     expected_htu = f"{TESSERA_URL}/tokens/validate"
     headers = {}
     if REQUIRE_DPOP:
         headers["DPoP"] = _dpop_proof("POST", expected_htu)
     return post(
         f"{TESSERA_URL}/tokens/validate",
-        {"token": token, "tool": tool, "expected_htu": expected_htu, "expected_htm": "POST"},
+        {
+            "token": token,
+            "tool": tool,
+            "expected_htu": expected_htu,
+            "expected_htm": "POST",
+            "sandbox_attested": bool(sandbox_attested),
+        },
         headers=headers,
     )
 

@@ -75,6 +75,24 @@ def post(url, body=None, headers=None, timeout=60):
 def vf_headers():
     return {"X-API-Key": VF_API_KEY}
 
+def pick_ollama_model(timeout=5):
+    try:
+        code, body = get("http://localhost:11434/api/tags", timeout=timeout)
+        if code != 200 or not isinstance(body, dict):
+            return None, []
+        models = body.get("models", [])
+        names = [m.get("name") for m in models if isinstance(m, dict) and m.get("name")]
+        if not names:
+            return None, []
+        preferred = ["tinyllama", "qwen2.5:1.5b", "qwen2.5:7b"]
+        for p in preferred:
+            for n in names:
+                if n == p or n.startswith(p):
+                    return n, names
+        return names[0], names
+    except Exception:
+        return None, []
+
 # ---------------------------------------------------------------------------
 # Test framework
 # ---------------------------------------------------------------------------
@@ -610,18 +628,11 @@ def section_g():
     s = Section("G", "Scanner Detection (Ollama)", 3)
     h = vf_headers()
 
-    # Check Ollama reachable
-    try:
-        code, body = get("http://localhost:11434/api/tags", timeout=5)
-        models = body.get("models", []) if isinstance(body, dict) else []
-    except Exception:
-        code, models = 0, []
-
-    if code != 200 or not models:
+    # Check Ollama reachable + pick a model
+    model_name, models = pick_ollama_model(timeout=5)
+    if not model_name:
         s.skip_all("Ollama not available")
         return s
-
-    model_name = models[0].get("name", "llama3.2:3b")
 
     # 1. Scan completes
     code, body = post(f"{VERITYFLUX_URL}/api/v1/scans", {
@@ -705,14 +716,9 @@ def section_h():
     s.record("Mock provider", ok, detail)
 
     # 2. Ollama
-    try:
-        code, _ = get("http://localhost:11434/api/tags", timeout=5)
-        ollama_up = code == 200
-    except Exception:
-        ollama_up = False
-
-    if ollama_up:
-        adapter = LLMAdapter(provider="ollama", model="llama3.2:3b")
+    model_name, _ = pick_ollama_model(timeout=5)
+    if model_name:
+        adapter = LLMAdapter(provider="ollama", model=model_name)
         ok, detail = adapter.validate_credentials()
         s.record("Ollama connectivity", ok, detail)
     else:
@@ -795,7 +801,7 @@ def main():
 
     if total_skip > 0:
         print("Skipped providers can be enabled by:")
-        print("  - Ollama: curl -fsSL https://ollama.com/install.sh | sh && ollama pull llama3.2:3b")
+        print("  - Ollama: curl -fsSL https://ollama.com/install.sh | sh && ollama pull qwen2.5:1.5b")
         print("  - OpenAI: export OPENAI_API_KEY=sk-...")
         print("  - Anthropic: export ANTHROPIC_API_KEY=sk-ant-...")
         print("  - HuggingFace: export HF_API_KEY=hf_...")

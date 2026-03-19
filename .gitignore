@@ -25,8 +25,32 @@ ARTEMIS/
 /vestigia/logs/
 
 # Local data outputs (root-level sandbox artifacts)
-/data/*.json
-!/data/witness.hash
+/data/
+
+# Local runtime state & queues
+/hitl_queue/
+/metrics/
+/shared_state/
+
+# Local app data (generated at runtime)
+/tessera/data/
+/verityflux-v2/data/
+/vestigia/data/
+
+# Archives and local models
+/archive/
+/model/
+
+# Local artifacts and binaries
+*.rdb
+*.bin
+*.hex
+*.ipynb
+.ipynb_checkpoints/
+*.zip
+
+# Local assistant config
+/.claude/
 
 # Anchor/ledger temp artifacts
 /vestigia/data/archives/
