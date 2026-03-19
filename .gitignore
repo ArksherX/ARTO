@@ -51,6 +51,7 @@ ARTEMIS/
 
 # Local assistant config
 /.claude/
+.claude/
 
 # Anchor/ledger temp artifacts
 /vestigia/data/archives/
@@ -68,3 +69,7 @@ ARTEMIS/
 /tessera/data/tessera_root_key.json
 /verityflux-v2/data/attestation_key.json
 /vestigia/.credentials
+.credentials
+
+# Local snapshots
+/verityflux-v2/snapshot_*.tar.gz
