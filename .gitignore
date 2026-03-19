@@ -73,3 +73,16 @@ ARTEMIS/
 
 # Local snapshots
 /verityflux-v2/snapshot_*.tar.gz
+
+# purge staging
+/_purge/
+
+# Non-public docs/artifacts
+CFP_*.txt
+DEMO_LAB_Submission_*.txt
+DEMO_UI_RUNBOOK.md
+COMPETITIVE_ANALYSIS.md
+RESTRUCTURE.md
+review.txt
+*_diagnostic.txt
+A guide MCP.pdf
