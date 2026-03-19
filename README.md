@@ -203,4 +203,4 @@ A GitHub Actions workflow spins up the local stack and runs the E2E smoke + reli
 ---
 
 ## License
-Proprietary. All rights reserved.
+Apache-2.0. See `LICENSE`.
