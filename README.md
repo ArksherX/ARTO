@@ -1,11 +1,11 @@
 # ML-Redteam Security Suite
 
-A local-first security suite for agentic AI systems in 2026, composed of:
+Local-first security suite for agentic AI systems, composed of:
 - **Tessera** — identity & access control (JWT/DPoP, revocation, RBAC/SSO)
 - **Vestigia** — tamper‑evident audit & forensics (ledger, SIEM/OTel)
-- **VerityFlux v2** — verification/scanning (20 OWASP detectors with real LLM probing, policy validation, firewall)
+- **VerityFlux v2** — verification/scanning (OWASP-style detectors, policy validation, runtime firewall)
 
-This repo supports **standalone runs**, **opt‑in integration**, and a **local Docker Compose stack**.
+Supports **standalone runs**, **opt‑in integration**, and a **local Docker Compose stack**.
 
 ---
 
@@ -13,21 +13,21 @@ This repo supports **standalone runs**, **opt‑in integration**, and a **local 
 
 ### Tessera
 ```bash
-cd /home/arksher/ml-redteam/tessera
+cd tessera
 streamlit run web_ui/tessera_dashboard.py
 python api_server.py
 ```
 
 ### Vestigia
 ```bash
-cd /home/arksher/ml-redteam/vestigia
+cd ../vestigia
 streamlit run dashboard.py
 python api_server.py
 ```
 
 ### VerityFlux v2
 ```bash
-cd /home/arksher/ml-redteam/verityflux-v2
+cd ../verityflux-v2
 streamlit run ui/streamlit/app.py
 python api/v2/main.py
 ```
@@ -42,7 +42,7 @@ Default ports (standalone):
 ## Launch the Full Suite (Local)
 
 ```bash
-/home/arksher/ml-redteam/launch_suite.sh
+./launch_suite.sh
 ```
 
 This starts all APIs + UIs on their dedicated ports.
@@ -53,17 +53,17 @@ This starts all APIs + UIs on their dedicated ports.
 
 APIs only:
 ```bash
-docker compose -f /home/arksher/ml-redteam/docker-compose.suite.yml up -d
+docker compose -f docker-compose.suite.yml up -d
 ```
 
 APIs + UIs:
 ```bash
-docker compose -f /home/arksher/ml-redteam/docker-compose.suite.yml --profile ui up -d
+docker compose -f docker-compose.suite.yml --profile ui up -d
 ```
 
 APIs + Ops stack (Prometheus/Grafana/Vector placeholders):
 ```bash
-docker compose -f /home/arksher/ml-redteam/docker-compose.suite.yml --profile ops up -d
+docker compose -f docker-compose.suite.yml --profile ops up -d
 ```
 
 Local Docker host ports (current mapping):
@@ -96,7 +96,7 @@ export MLRT_VESTIGIA_API_KEY=dev-vestigia-key
 ```
 
 Contract spec:
-- `/home/arksher/ml-redteam/integration_contract.md`
+- `integration_contract.md`
 
 ---
 
@@ -154,24 +154,24 @@ Integration test plan:
 ## Ops & Hardening
 
 Playbooks:
-- `/home/arksher/ml-redteam/ops/hardening_playbook.md`
-- `/home/arksher/ml-redteam/ops/reliability_checks.md`
-- `/home/arksher/ml-redteam/ops/blackhat_submission_pack.md`
-- `/home/arksher/ml-redteam/preflight_check.py` (called by `launch_suite.sh` before startup)
+- `ops/hardening_playbook.md`
+- `ops/reliability_checks.md`
+- `ops/blackhat_submission_pack.md`
+- `preflight_check.py` (called by `launch_suite.sh` before startup)
 
 ---
 
 ## CI Workflow
 
 A GitHub Actions workflow spins up the local stack and runs the E2E smoke + reliability checks:
-- `/home/arksher/ml-redteam/.github/workflows/suite-ci.yml`
+- `.github/workflows/suite-ci.yml`
 
 ---
 
 ## Common Issues
 
 **Tessera fails with short secret key**
-- Ensure `TESSERA_SECRET_KEY` is ≥ 64 bytes (512‑bit). The `.env` is already updated.
+- Ensure `TESSERA_SECRET_KEY` is ≥ 64 bytes (512‑bit).
 - If your shell has a stale key exported, `unset TESSERA_SECRET_KEY` before running.
 
 **Tessera prod crashes due to SAML dependency**
@@ -203,4 +203,4 @@ A GitHub Actions workflow spins up the local stack and runs the E2E smoke + reli
 ---
 
 ## License
-Internal / private.
+Proprietary. All rights reserved.
