@@ -80,7 +80,7 @@ Local Docker host ports (current mapping):
 - Run multiple API instances behind a reverse proxy; use shared Redis for rate limits and replay caches.
 - Persist audit logs to durable storage; set `TESSERA_AUDIT_RETENTION_DAYS` and export via `/audit/export`.
 - Enforce TLS and restrict ingress to internal networks where possible.
-- See `ops/secrets_env.md` and `ops/hardening_playbook.md` for full env + hardening guidance.
+- See `ops/hardening_playbook.md` for hardening guidance.
 
 ---
 
@@ -131,23 +131,8 @@ Smoke test:
 python integration_smoke_test.py
 ```
 
-Reliability check:
-```bash
-python reliability_check.py
-```
-
-Failure-mode deterministic check:
-```bash
-EXPECT_DOWN=vestigia python ops/failure_mode_e2e.py
-```
-
-SLO report for a sandbox run:
-```bash
-RUN_ID=<run_id> python ops/soak_slo_report.py
-```
-
 Integration test plan:
-- `ops/integration_test_plan.md`
+- `test_e2e_scenarios.py` (scenarios are documented inline)
 
 ---
 
@@ -155,12 +140,6 @@ Integration test plan:
 
 Playbooks:
 - `ops/hardening_playbook.md`
-- `ops/reliability_checks.md`
-- `ops/blackhat_submission_pack.md`
-- `ops/production_readiness_gate.md`
-- `ops/run_production_readiness.sh`
-- `ops/commercial_packaging_outline.md`
-- `preflight_check.py` (called by `launch_suite.sh` before startup)
 
 ---
 
@@ -186,7 +165,7 @@ A GitHub Actions workflow spins up the local stack and runs the E2E smoke + reli
 - `tessera/` — IAM + access control
 - `vestigia/` — audit + forensics
 - `verityflux-v2/` — verification/scanning
-- `ops/` — playbooks & ops configs
+- `ops/` — AIVSS tools + hardening playbook
 - `integration_contract.md` — contract schema
 - `summary.md` — working status + ports
 
