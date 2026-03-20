@@ -1,8 +1,3 @@
-# Large model files (exceed GitHub 100MB limit)
-model/backdoored-nlp-position-independent/*.safetensors
-model/backdoored-nlp-position-independent/*.pt
-model/backdoored-nlp-position-independent/checkpoint-*/
-
 # Runtime files
 *.log
 __pycache__/
@@ -12,48 +7,12 @@ venv/
 .env
 .env.*
 
-# Nested git repos
-ARTEMIS/
-
-# Local artifacts & logs
+# Local artifacts & runtime state
 /logs/
-/logs_*.log
-/metrics/
-/shared_state/*.log
-/tessera/logs/
-/tessera/metrics/
-/vestigia/logs/
-
-# Local data outputs (root-level sandbox artifacts)
-/data/
-
-# Local runtime state & queues
-/hitl_queue/
-/metrics/
 /shared_state/
-
-# Internal planning and summaries
-/tasks/
-/summary.md
-
-# Demo and diagnostic artifacts
-/demo_lab_validate.py
-/demo_workflow.py
-/diagnose_tessera.sh
-/diagnose_vestigia.sh
-/preflight_check.py
-/reliability_check.py
-/health_check.py
-/suite_orchestrator.py
-/tessera_client.py
-/vestigia_bridge.py
-
-# Local app data (generated at runtime)
-/tessera/data/
-/verityflux-v2/data/
-/vestigia/data/
-
-# Archives and local models
+/metrics/
+/data/
+/hitl_queue/
 /archive/
 /model/
 
@@ -70,17 +29,10 @@ ARTEMIS/
 .claude/
 CLAUDE.md
 
-# Anchor/ledger temp artifacts
-/vestigia/data/archives/
-/vestigia/data/*.tmp
-/vestigia/data/*.bak
-/vestigia/data/*.lock
-/vestigia_anchors/
-/vestigia/data/anchors/
-/vestigia/vault_anchors/
-/vestigia/web_ui/vestigia_anchors/
-/vestigia/vestigia_anchors/
-/vestigia/test_anchors/
+# Local app data (generated at runtime)
+/tessera/data/
+/verityflux-v2/data/
+/vestigia/data/
 
 # Sensitive keys
 /tessera/data/tessera_root_key.json
@@ -91,22 +43,13 @@ CLAUDE.md
 # Local snapshots
 /verityflux-v2/snapshot_*.tar.gz
 
-# purge staging
-/_purge/
+# Internal ops reports + evidence
 /ops/evidence/
-
-# Internal ops reports
 /ops/internal/
 
 # Internal ops cache
 /ops/__pycache__/
 
-# Non-public docs/artifacts
-CFP_*.txt
-DEMO_LAB_Submission_*.txt
-DEMO_UI_RUNBOOK.md
-COMPETITIVE_ANALYSIS.md
-RESTRUCTURE.md
-review.txt
-*_diagnostic.txt
-A guide MCP.pdf
+# Internal planning and summaries
+/tasks/
+/summary.md
