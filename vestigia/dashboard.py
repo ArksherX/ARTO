@@ -40,6 +40,82 @@ API_KEY = os.getenv("VESTIGIA_API_KEY", "")
 CONFERENCE_MODE = os.getenv("VESTIGIA_CONFERENCE_MODE", "true").lower() in ("1", "true", "yes")
 BILLING_NAV_LABEL = "🧪 Service Tiers & SLA" if CONFERENCE_MODE else "💳 Plan & Billing"
 
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _latest_file(patterns):
+    root = _project_root()
+    candidates = []
+    for pattern in patterns:
+        candidates.extend(root.glob(pattern))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def _load_json(path: Path):
+    if not path or not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (json.JSONDecodeError, PermissionError, OSError):
+        return None
+
+
+def _load_text(path: Path, max_lines: int = 30) -> str:
+    if not path or not path.exists():
+        return ""
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            lines = handle.readlines()
+        return "".join(lines[:max_lines])
+    except (PermissionError, OSError):
+        return ""
+
+
+def _aivss_gate_summary(report):
+    vulnerabilities = report.get("vulnerabilities", []) if report else []
+    max_score = 0.0
+    max_severity = "Low"
+    critical = False
+    high = False
+    for vuln in vulnerabilities:
+        scores = vuln.get("scores", {})
+        aivss = float(scores.get("aivss", 0.0))
+        severity = scores.get("severity", "Low")
+        if aivss > max_score:
+            max_score = aivss
+            max_severity = severity
+        if severity == "Critical" or aivss >= 9.0:
+            critical = True
+        elif severity == "High" or aivss >= 7.0:
+            high = True
+    if critical:
+        gate = "FAIL"
+    elif high:
+        gate = "REQUIRE_APPROVAL"
+    else:
+        gate = "PASS"
+    return max_score, max_severity, gate
+
+
+def _readiness_summary(report_text: str):
+    status_map = {}
+    current = None
+    for line in report_text.splitlines():
+        if line.startswith("## "):
+            current = line.replace("##", "").strip()
+            continue
+        if line.strip().startswith("- Status:") and current:
+            status_map[current] = line.split(":", 1)[1].strip()
+    overall = "PASS"
+    if any(status.upper() == "FAIL" for status in status_map.values()):
+        overall = "FAIL"
+    return {"overall": overall, "sections": status_map}
+
 # Page config
 st.set_page_config(
     page_title="Vestigia Control Center",
@@ -879,6 +955,44 @@ def render_dashboard():
     with col4:
         st.metric("Watchtower", f"{st.session_state.watchtower_checks} checks")
     
+    st.markdown("---")
+
+    st.subheader("🧾 Governance & AIVSS")
+    report_path = _latest_file(["ops/evidence/**/aivss_report_*.json", "ops/evidence/aivss_report_*.json"])
+    sbom_path = _latest_file(["ops/evidence/**/sbom_*.json", "ops/evidence/sbom_*.json"])
+    readiness_path = None
+
+    report_data = _load_json(report_path) if report_path else None
+    sbom_data = _load_json(sbom_path) if sbom_path else None
+    readiness_text = ""
+    readiness = None
+
+    col_g1, col_g2, col_g3 = st.columns(3)
+
+    with col_g1:
+        st.markdown("**AIVSS Report**")
+        if report_data:
+            max_score, max_severity, gate = _aivss_gate_summary(report_data)
+            st.metric("Max AIVSS", f"{max_score:.1f}", delta=max_severity)
+            st.caption(f"Gate: {gate}")
+            st.caption(f"Report: {report_path}")
+        else:
+            st.caption("No AIVSS report found.")
+            st.code("python3 ops/aivss_report.py --sbom-path <sbom.json>", language="bash")
+
+    with col_g2:
+        st.markdown("**Supply Chain (SBOM)**")
+        if sbom_data:
+            st.metric("Components", sbom_data.get("component_count", 0))
+            st.caption(f"SBOM: {sbom_path}")
+        else:
+            st.caption("No SBOM evidence found.")
+            st.code("python3 ops/generate_sbom.py", language="bash")
+
+    with col_g3:
+        st.markdown("**Production Readiness**")
+        st.caption("Internal-only evidence. Not surfaced in public dashboard.")
+
     st.markdown("---")
     
     st.subheader("🔐 Integrity Status")

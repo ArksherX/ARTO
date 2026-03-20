@@ -52,6 +52,7 @@ ARTEMIS/
 # Local assistant config
 /.claude/
 .claude/
+CLAUDE.md
 
 # Anchor/ledger temp artifacts
 /vestigia/data/archives/
@@ -77,6 +78,12 @@ ARTEMIS/
 # purge staging
 /_purge/
 /ops/evidence/
+
+# Internal ops reports
+/ops/internal/
+
+# Internal ops cache
+/ops/__pycache__/
 
 # Non-public docs/artifacts
 CFP_*.txt
