@@ -113,6 +113,56 @@ def suite_integration_active() -> bool:
 
     return shared_log_active or api_integration_active
 
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _latest_file(patterns):
+    root = _project_root()
+    candidates = []
+    for pattern in patterns:
+        candidates.extend(root.glob(pattern))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def _load_json(path: Path):
+    if not path or not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (json.JSONDecodeError, PermissionError, OSError):
+        return None
+
+
+def _aivss_gate_summary(report):
+    vulnerabilities = report.get("vulnerabilities", []) if report else []
+    max_score = 0.0
+    max_severity = "Low"
+    critical = False
+    high = False
+    for vuln in vulnerabilities:
+        scores = vuln.get("scores", {})
+        aivss = float(scores.get("aivss", 0.0))
+        severity = scores.get("severity", "Low")
+        if aivss > max_score:
+            max_score = aivss
+            max_severity = severity
+        if severity == "Critical" or aivss >= 9.0:
+            critical = True
+        elif severity == "High" or aivss >= 7.0:
+            high = True
+    if critical:
+        gate = "FAIL"
+    elif high:
+        gate = "REQUIRE_APPROVAL"
+    else:
+        gate = "PASS"
+    return max_score, max_severity, gate
+
 # ============================================
 # PAGE CONFIG
 # ============================================
@@ -499,7 +549,22 @@ with st.sidebar:
         st.caption(f"Log: {audit_log}")
     else:
         st.warning("⚠️ Standalone Mode")
-    
+
+    st.markdown("---")
+
+    # AIVSS status
+    st.markdown("**🧾 AIVSS Status**")
+    report_path = _latest_file(["ops/evidence/**/aivss_report_*.json", "ops/evidence/aivss_report_*.json"])
+    report = _load_json(report_path) if report_path else None
+    if report:
+        max_score, max_severity, gate = _aivss_gate_summary(report)
+        st.caption(f"Max AIVSS: {max_score:.1f} ({max_severity})")
+        st.caption(f"Gate: {gate}")
+        st.caption(f"Report: {report_path}")
+    else:
+        st.caption("No AIVSS report found.")
+        st.caption("Run: python3 ops/aivss_report.py")
+
     st.markdown("---")
     
     # Auto-refresh

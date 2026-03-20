@@ -213,6 +213,89 @@ def format_timestamp(ts: Any) -> str:
     return f"{base} {zone} ({_relative_time(dt)})"
 
 
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _latest_file(patterns: List[str]) -> Optional[Path]:
+    root = _project_root()
+    candidates: List[Path] = []
+    for pattern in patterns:
+        candidates.extend(root.glob(pattern))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def _load_json(path: Optional[Path]) -> Optional[Dict[str, Any]]:
+    if not path or not path.exists():
+        return None
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (json.JSONDecodeError, PermissionError, OSError):
+        return None
+
+
+def _load_text(path: Optional[Path], max_lines: int = 30) -> str:
+    if not path or not path.exists():
+        return ""
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            lines = handle.readlines()
+        return "".join(lines[:max_lines])
+    except (PermissionError, OSError):
+        return ""
+
+
+def _aivss_gate_summary(report: Dict[str, Any]) -> Dict[str, Any]:
+    vulnerabilities = report.get("vulnerabilities", []) if report else []
+    max_score = 0.0
+    max_severity = "Low"
+    critical = []
+    high = []
+    for vuln in vulnerabilities:
+        scores = vuln.get("scores", {})
+        aivss = float(scores.get("aivss", 0.0))
+        severity = scores.get("severity", "Low")
+        if aivss > max_score:
+            max_score = aivss
+            max_severity = severity
+        category = vuln.get("owasp_category", vuln.get("id", "unknown"))
+        if severity == "Critical" or aivss >= 9.0:
+            critical.append(category)
+        elif severity == "High" or aivss >= 7.0:
+            high.append(category)
+    if critical:
+        gate = "FAIL"
+    elif high:
+        gate = "REQUIRE_APPROVAL"
+    else:
+        gate = "PASS"
+    return {
+        "max_score": max_score,
+        "max_severity": max_severity,
+        "gate": gate,
+        "critical": sorted(set(critical)),
+        "high": sorted(set(high)),
+    }
+
+
+def _readiness_summary(report_text: str) -> Dict[str, Any]:
+    status_map: Dict[str, str] = {}
+    current = None
+    for line in report_text.splitlines():
+        if line.startswith("## "):
+            current = line.replace("##", "").strip()
+            continue
+        if line.strip().startswith("- Status:") and current:
+            status_map[current] = line.split(":", 1)[1].strip()
+    overall = "PASS"
+    if any(status.upper() == "FAIL" for status in status_map.values()):
+        overall = "FAIL"
+    return {"overall": overall, "sections": status_map}
+
+
 # =============================================================================
 # MOCK DATA GENERATORS (Replace with API calls in production)
 # =============================================================================
@@ -1608,6 +1691,52 @@ def page_dashboard():
             } for e in policy_events]), use_container_width=True)
         else:
             st.caption("No policy events loaded yet.")
+
+    st.divider()
+    st.subheader("🧾 Governance & AIVSS")
+
+    report_path = _latest_file(["ops/evidence/**/aivss_report_*.json", "ops/evidence/aivss_report_*.json"])
+    sbom_path = _latest_file(["ops/evidence/**/sbom_*.json", "ops/evidence/sbom_*.json"])
+    readiness_path = None
+    slo_path = None
+
+    report = _load_json(report_path)
+    sbom = _load_json(sbom_path)
+    readiness_text = ""
+    readiness = None
+    slo = None
+
+    col_a, col_b, col_c = st.columns(3)
+
+    with col_a:
+        st.markdown("**AIVSS Report**")
+        if report:
+            summary = _aivss_gate_summary(report)
+            st.metric("Max AIVSS", f"{summary['max_score']:.1f}", delta=summary["max_severity"])
+            gate = summary["gate"]
+            badge_class = "badge-info"
+            if gate == "FAIL":
+                badge_class = "badge-critical"
+            elif gate == "REQUIRE_APPROVAL":
+                badge_class = "badge-high"
+            st.markdown(f"<span class='badge {badge_class}'>Gate: {gate}</span>", unsafe_allow_html=True)
+            st.caption(f"Report: {report_path}")
+        else:
+            st.info("No AIVSS report found yet.")
+            st.code("python3 ops/generate_sbom.py\npython3 ops/aivss_report.py --sbom-path <sbom.json>", language="bash")
+
+    with col_b:
+        st.markdown("**Supply Chain (SBOM)**")
+        if sbom:
+            st.metric("Components", sbom.get("component_count", 0))
+            st.caption(f"SBOM: {sbom_path}")
+        else:
+            st.info("No SBOM evidence found.")
+            st.code("python3 ops/generate_sbom.py", language="bash")
+
+    with col_c:
+        st.markdown("**Production Readiness**")
+        st.caption("Internal-only evidence. Not surfaced in public dashboard.")
     
     # Charts row
     col1, col2 = st.columns(2)
