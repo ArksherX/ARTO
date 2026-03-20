@@ -32,6 +32,22 @@ ARTEMIS/
 /metrics/
 /shared_state/
 
+# Internal planning and summaries
+/tasks/
+/summary.md
+
+# Demo and diagnostic artifacts
+/demo_lab_validate.py
+/demo_workflow.py
+/diagnose_tessera.sh
+/diagnose_vestigia.sh
+/preflight_check.py
+/reliability_check.py
+/health_check.py
+/suite_orchestrator.py
+/tessera_client.py
+/vestigia_bridge.py
+
 # Local app data (generated at runtime)
 /tessera/data/
 /verityflux-v2/data/

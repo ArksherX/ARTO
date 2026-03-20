@@ -1,6 +1,6 @@
-# Arto Security Suite — Use Case Guide
+# ML-Redteam Security Suite — Use Case Guide
 
-**Version:** 2.3.2 | **Date:** 2026-02-18
+**Version:** 2.4 | **Date:** 2026-03-20
 **Components:** Tessera (Identity) + VerityFlux (Verification) + Vestigia (Evidence)
 
 ---
@@ -28,27 +28,22 @@
 ### Starting the Suite
 
 ```bash
-# Start all three services
-./start_suite.sh
+# Start all three services (APIs + UIs)
+./launch_suite.sh
 
 # Or start individually:
 # Tessera API (port 8001)
 cd tessera && python api_server.py
 
 # Vestigia API (port 8002)
-cd vestigia && python api_server.py
+cd ../vestigia && python api_server.py
 
 # VerityFlux API (port 8003)
-cd verityflux-v2 && uvicorn api.v2.main:app --host 0.0.0.0 --port 8003
+cd ../verityflux-v2 && python api/v2/main.py
 
 # Start UIs (Streamlit)
-# Tessera UI (port 8501)
 streamlit run tessera/web_ui/tessera_dashboard.py --server.port 8501
-
-# Vestigia UI (port 8502)
 streamlit run vestigia/dashboard.py --server.port 8502
-
-# VerityFlux UI (port 8503)
 streamlit run verityflux-v2/ui/streamlit/app.py --server.port 8503
 ```
 
@@ -1159,6 +1154,28 @@ The LLM adapter (`verityflux-v2/integrations/llm_adapter.py`) supports these pro
 | `VESTIGIA_API_URL` | `http://localhost:8002` | Vestigia API for event forwarding |
 
 ### Vestigia
+
+---
+
+## 8. AIVSS & Supply Chain (Governance)
+
+The suite now includes AIVSS reporting (Appendix‑A schema) and a lightweight SBOM generator.
+
+```bash
+# Generate SBOM evidence
+python3 ops/generate_sbom.py
+
+# Generate AIVSS report
+python3 ops/aivss_report.py --sbom-path <path-to-sbom.json>
+
+# Apply release gate
+python3 ops/aivss_release_gate.py <path-to-aivss-report.json>
+```
+
+Dashboard notes:
+- VerityFlux SOC dashboard shows the latest AIVSS report + gate status.
+- Vestigia dashboard shows AIVSS summary and SBOM count.
+- Tessera sidebar shows the latest AIVSS gate state.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
