@@ -553,14 +553,14 @@ with st.sidebar:
     st.markdown("---")
 
     # AIVSS status
-    st.markdown("**🧾 AIVSS Status**")
+    st.markdown("**🧾 Threat Layer Status**")
     report_path = _latest_file(["ops/evidence/**/aivss_report_*.json", "ops/evidence/aivss_report_*.json"])
     report = _load_json(report_path) if report_path else None
     if report:
         max_score, max_severity, gate = _aivss_gate_summary(report)
-        st.caption(f"Max AIVSS: {max_score:.1f} ({max_severity})")
-        st.caption(f"Gate: {gate}")
-        st.caption(f"Report: {report_path}")
+        st.caption(f"Max score: {max_score:.1f} ({max_severity})")
+        st.caption(f"Layer gate: {gate}")
+        st.caption("Identity layer synchronized with VerityFlux detections and Vestigia evidence.")
     else:
         st.caption("No AIVSS report found.")
         st.caption("Run: python3 ops/aivss_report.py")
@@ -828,6 +828,10 @@ elif mode == "🔑 Token Generator":
                             "FAILURE",
                             "Token generation failed"
                         )
+            else:
+                st.warning("Selected agent has no allowed tools configured.")
+                st.caption("Assign at least one allowed tool in Agent Registry before issuing a token.")
+                st.form_submit_button("🔐 Generate Token", type="primary", disabled=True)
 
         st.markdown("---")
         st.subheader("🧾 Recently Issued Tokens (This Session)")
