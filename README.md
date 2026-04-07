@@ -87,7 +87,8 @@ Local Docker host ports (current mapping):
 ## Integration Hooks (Opt‑In)
 
 Integration hooks forward contract events to Vestigia.
-Enable with environment variables:
+`launch_suite.sh` enables them by default for local full-suite runs, but standalone mode remains available and you can disable forwarding explicitly with `MLRT_INTEGRATION_ENABLED=false`.
+Configure with environment variables:
 
 ```bash
 export MLRT_INTEGRATION_ENABLED=true
@@ -108,10 +109,10 @@ Contract spec:
 # Start all services first
 ./launch_suite.sh
 
-# 1. Functional plumbing (61 tests) — do APIs respond correctly?
+# 1. Functional plumbing (68 tests) — do APIs respond correctly?
 python test_suite_complete.py
 
-# 2. Adversarial efficacy (38 tests) — do security detections catch real attacks?
+# 2. Adversarial efficacy (42 tests) — do security detections catch real attacks?
 python test_adversarial_efficacy.py
 
 # 3. E2E scenarios (28 steps) — do cross-service workflows work end-to-end?
@@ -120,8 +121,8 @@ python test_e2e_scenarios.py
 
 | Script | What It Validates | Sections |
 |--------|------------------|----------|
-| `test_suite_complete.py` | API plumbing across all 3 services | 12 sections (A-L), 61 tests |
-| `test_adversarial_efficacy.py` | Prompt injection, tool call blocking, reasoning interception, memory poisoning, session drift, scanner detection, LLM adapter connectivity | 8 sections (A-H), 38 tests |
+| `test_suite_complete.py` | API plumbing across all 3 services, including A2A reasoning contamination, protocol-integrity enforcement, and cross-agent memory-poisoning checks | 12 sections (A-L), 68 tests |
+| `test_adversarial_efficacy.py` | Prompt injection, tool call blocking, A2A reasoning contamination, protocol integrity, reasoning interception, memory poisoning, cross-agent memory poisoning, session drift, scanner detection, LLM adapter connectivity | 8 sections (A-H), 42 tests |
 | `test_e2e_scenarios.py` | Legitimate agent workflow, attack detection & containment, delegation chain security, cross-service resilience | 4 scenarios, 28 steps |
 
 ### Legacy Checks
@@ -140,6 +141,7 @@ Integration test plan:
 
 Playbooks:
 - `ops/hardening_playbook.md`
+- `ops/production_env_checklist.md`
 
 ---
 
@@ -167,20 +169,24 @@ A GitHub Actions workflow spins up the local stack and runs the E2E smoke + reli
 - `verityflux-v2/` — verification/scanning
 - `ops/` — AIVSS tools + hardening playbook
 - `integration_contract.md` — contract schema
-- `summary.md` — working status + ports
+- `USE_CASE_GUIDE.md` — operator workflows and component usage patterns
 
 ---
 
 ## Status & Roadmap
 - Standalone: **working**
-- Opt‑in integration: **working (event forwarding)**
+- Integration: **working** (`launch_suite.sh` defaults it on; override with `MLRT_INTEGRATION_ENABLED=false`)
 - CI smoke tests: **working**
-- VerityFlux real scanning: **working** (all 20 detectors query live LLMs, no simulated data)
+- VerityFlux real scanning: **working** (20 core detectors query live LLMs; 3 fuzz + 4 MCP detectors available via scan flags)
+- VerityFlux protocol integrity enforcement: **working** (schema drift, field smuggling, contract desync, multi-hop trust collapse via live API + UI)
+- VerityFlux A2A reasoning contamination detection: **working** (inherited handoff reasoning flagged before execution, with Vestigia evidence correlation)
+- VerityFlux cross-agent working-memory poisoning coverage: **working** (shared-memory retrieval sanitization, alerting, and Vestigia evidence correlation)
+- VerityFlux skill-layer AST10 assessment: **working** (`SKILL.md`, `skill.json`, `manifest.json`, `package.json` via UI + API, with Tessera/Vestigia control mapping)
 - LLM adapter connectivity: **hardened** (timeouts for all providers, Ollama pre-flight, error diagnostics)
 - Agent onboarding: **working** (single register, bulk upload, Tessera import, capability declarations)
-- Runtime enforcement: **working** (reasoning interception, memory filtering, adversarial scoring, session drift)
+- Runtime enforcement: **working** (reasoning interception, A2A handoff contamination checks, memory filtering, cross-agent memory poisoning alerts, adversarial scoring, session drift, protocol integrity)
 - Production deployment: **ready** (API key pipeline, scan_mode metadata, capability-based risk assessment)
-- Test coverage: **3 suites** (61 functional + 38 adversarial efficacy + 28 E2E scenario steps)
+- Test coverage: **3 suites** (68 functional + 42 adversarial efficacy + 28 E2E scenario steps)
 
 ---
 

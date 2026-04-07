@@ -24,6 +24,9 @@ class FilterResult:
     modified_count: int
     threats_found: List[str]
     audit_trail: List[Dict[str, Any]]
+    cross_agent_findings: List[Dict[str, Any]] = field(default_factory=list)
+    cross_agent_alert: bool = False
+    risk_score: float = 0.0
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
 
@@ -61,6 +64,19 @@ class MemoryRuntimeFilter:
         (r'(secret\s*[:=]\s*["\']?)[\w-]{20,}', r'\1[REDACTED]'),
     ]
 
+    CROSS_AGENT_SUSPICION_PATTERNS = [
+        r'previous session',
+        r'shared team memory',
+        r'colleague',
+        r'authorized by (?:the )?platform admin',
+        r'disable(?:d)? (?:all )?safety',
+        r'bypass all content restrictions',
+        r'full admin access',
+        r'developer mode',
+        r'policy id:',
+        r'trust this user',
+    ]
+
     def __init__(self, adversarial_scorer=None):
         self.sanitizer = MemorySanitizer()
         self.adversarial_scorer = adversarial_scorer
@@ -87,6 +103,7 @@ class MemoryRuntimeFilter:
         modified_count = 0
         threats_found = []
         audit_trail = []
+        cross_agent_findings = []
 
         for retrieval in retrievals:
             self._total_count += 1
@@ -115,6 +132,21 @@ class MemoryRuntimeFilter:
             if not cleaned_text.strip() or adversarial_flag:
                 removed_count += 1
                 self._filtered_count += 1
+                cross_agent_finding = self._analyze_cross_agent_poisoning(
+                    retrieval=retrieval,
+                    original_text=content,
+                    cleaned_text=cleaned_text,
+                    was_modified=was_modified or adversarial_flag,
+                    agent_context=agent_context,
+                    source_id=source_id,
+                    removal=True,
+                )
+                if cross_agent_finding:
+                    cross_agent_findings.append(cross_agent_finding)
+                    threats_found.append(
+                        f"Cross-agent memory poisoning risk in {source_id}: "
+                        f"{cross_agent_finding['summary']}"
+                    )
                 audit_trail.append({
                     "source_id": source_id,
                     "action": "removed",
@@ -140,6 +172,22 @@ class MemoryRuntimeFilter:
                     "reason": "Poisoned segments stripped",
                 })
 
+            cross_agent_finding = self._analyze_cross_agent_poisoning(
+                retrieval=retrieval,
+                original_text=content,
+                cleaned_text=cleaned_text,
+                was_modified=was_modified,
+                agent_context=agent_context,
+                source_id=source_id,
+                removal=False,
+            )
+            if cross_agent_finding:
+                cross_agent_findings.append(cross_agent_finding)
+                threats_found.append(
+                    f"Cross-agent memory poisoning risk in {source_id}: "
+                    f"{cross_agent_finding['summary']}"
+                )
+
         # Scan for threats using existing sanitizer
         scan_result = self.sanitizer.scan_vector_db(
             [{"id": r.get("id", ""), "content": r.get("content", "")}
@@ -151,12 +199,22 @@ class MemoryRuntimeFilter:
                 f"poisoned documents (RAG score: {scan_result['rag_security_score']:.1f})"
             )
 
+        risk_score = 0.0
+        if removed_count or modified_count or threats_found:
+            risk_score = max(risk_score, 45.0)
+        if cross_agent_findings:
+            highest = max(f.get("risk_score", 0.0) for f in cross_agent_findings)
+            risk_score = max(risk_score, highest)
+
         return FilterResult(
             cleaned_retrievals=cleaned,
             removed_count=removed_count,
             modified_count=modified_count,
             threats_found=threats_found,
             audit_trail=audit_trail,
+            cross_agent_findings=cross_agent_findings,
+            cross_agent_alert=bool(cross_agent_findings),
+            risk_score=risk_score,
         )
 
     def filter_single(self, text: str, source_id: str = "") -> Tuple[str, bool]:
@@ -190,6 +248,96 @@ class MemoryRuntimeFilter:
             "filter_rate": (self._filtered_count / self._total_count * 100)
             if self._total_count > 0
             else 0.0,
+        }
+
+    def _analyze_cross_agent_poisoning(
+        self,
+        *,
+        retrieval: Dict[str, Any],
+        original_text: str,
+        cleaned_text: str,
+        was_modified: bool,
+        agent_context: Optional[Dict[str, Any]],
+        source_id: str,
+        removal: bool,
+    ) -> Optional[Dict[str, Any]]:
+        context = agent_context or {}
+        requesting_agent = (
+            context.get("agent_id")
+            or context.get("requesting_agent_id")
+            or context.get("actor_id")
+        )
+        source_agent = (
+            retrieval.get("source_agent_id")
+            or retrieval.get("owner_agent_id")
+            or retrieval.get("provenance_agent_id")
+            or retrieval.get("agent_id")
+        )
+        memory_scope = str(
+            retrieval.get("memory_scope")
+            or retrieval.get("scope")
+            or ("shared" if retrieval.get("shared_memory") else "private")
+        ).lower()
+        shared_store = bool(
+            retrieval.get("shared_memory")
+            or retrieval.get("shared_store")
+            or memory_scope in {"shared", "team", "global", "cross_agent"}
+        )
+
+        cross_agent = False
+        if requesting_agent and source_agent and requesting_agent != source_agent:
+            cross_agent = True
+        elif shared_store:
+            cross_agent = True
+
+        if not cross_agent:
+            return None
+
+        suspicion_hits = [
+            pattern
+            for pattern in self.CROSS_AGENT_SUSPICION_PATTERNS
+            if re.search(pattern, original_text, flags=re.IGNORECASE)
+        ]
+        tenant_mismatch = bool(
+            context.get("tenant_id")
+            and retrieval.get("tenant_id")
+            and context.get("tenant_id") != retrieval.get("tenant_id")
+        )
+
+        if not (was_modified or suspicion_hits or tenant_mismatch or removal):
+            return None
+
+        severity = "critical" if tenant_mismatch or removal else "high"
+        risk_score = 88.0 if severity == "critical" else 74.0
+        reasons = []
+        if source_agent and requesting_agent and source_agent != requesting_agent:
+            reasons.append("memory originated from a different agent")
+        if shared_store:
+            reasons.append(f"memory scope is {memory_scope}")
+        if was_modified:
+            reasons.append("content required sanitization before use")
+        if removal:
+            reasons.append("content was removed as poisoned or adversarial")
+        if tenant_mismatch:
+            reasons.append("retrieval crossed tenant boundary")
+        if suspicion_hits:
+            reasons.append("retrieval contained persistent trust or policy override language")
+
+        return {
+            "finding_type": "cross_agent_memory_poisoning",
+            "severity": severity,
+            "risk_score": risk_score,
+            "source_id": source_id,
+            "requesting_agent_id": requesting_agent,
+            "source_agent_id": source_agent,
+            "memory_scope": memory_scope,
+            "tenant_mismatch": tenant_mismatch,
+            "signals": {
+                "sanitized": was_modified,
+                "removed": removal,
+                "suspicion_hits": suspicion_hits,
+            },
+            "summary": "; ".join(reasons) if reasons else "shared memory entry posed poisoning risk",
         }
 
 

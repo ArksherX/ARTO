@@ -1,17 +1,120 @@
 # VerityFlux v2 — Summary
 
-**Last updated:** 2026-02-18
-**Status:** Production-ready (real LLM detection + runtime enforcement active)
+**Last updated:** 2026-04-07
+**Status:** Production-ready (real LLM detection + runtime enforcement active, with live protocol-integrity checks)
+
+## What Changed (2026-04-07) — Protocol Integrity Enforcement
+
+VerityFlux now includes first-class protocol-integrity controls for agent-to-agent and tool-call message handling. This closes the highest-priority product gaps around schema drift, field smuggling, contract desynchronization, and multi-hop trust collapse without changing the existing runtime enforcement flow.
+
+### Key changes
+
+1. **Protocol integrity engine added** — `core/protocol_integrity.py` now evaluates structured message envelopes against expected tool contracts and route metadata.
+
+2. **Live runtime enforcement wiring** — `POST /api/v2/intercept/tool-call` now runs protocol-integrity analysis before execution and can escalate or block actions when protocol findings are high-risk.
+
+3. **New MCP analysis endpoint** — `POST /api/v2/mcp/protocol-integrity/analyze` exposes direct protocol analysis for message payloads, contract metadata, and routed multi-hop paths.
+
+4. **MCP status extended** — `GET /api/v2/mcp/status` now includes protocol-integrity counters and recent alerts so the UI is backed by live operational data instead of fixture-only values.
+
+5. **Schema bootstrap expanded** — `cognitive_firewall/schema_validator.py` now seeds default contracts for common tool calls (`read_file`, `execute_command`, `send_email`, `web_search`, `sql_executor`, and aliases), allowing protocol checks to work even before custom schemas are registered.
+
+6. **Vestigia evidence integration** — protocol findings now emit `PROTOCOL_INTEGRITY_ALERT` events, and Vestigia correlates protocol alerts followed by tool execution as a cross-plane anomaly pattern.
+
+7. **Dashboard integration** — the VerityFlux **MCP Security** tab now includes a **Protocol Integrity** view showing assessed messages, alert counts, and recent live findings.
+
+8. **Regression coverage added** — functional, adversarial, and end-to-end suites now cover benign protocol analysis, field smuggling, and multi-hop trust collapse scenarios.
+
+### Verification
+
+- `python3 -m py_compile` on all modified protocol-integrity and evidence modules: PASS
+- `python3 test_suite_complete.py`: PASS (`63/67` passed, `4` skipped for optional providers)
+- `python3 test_adversarial_efficacy.py`: PASS (`38/38` passed, `3` skipped for optional providers)
+- `python3 test_e2e_scenarios.py`: PASS (`28/28` steps passed)
+
+## What Changed (2026-04-07) — Cross-Agent Working-Memory Poisoning
+
+VerityFlux now treats shared-memory retrievals as a multi-agent trust boundary, not just a generic sanitization problem. This closes the immediate product gap where poisoned memory written by one agent could later influence another agent through shared retrieval paths.
+
+### Key changes
+
+1. **Cross-agent memory detection added** — `cognitive_firewall/memory_runtime_filter.py` now detects poisoned shared-memory retrievals when content originates from another agent or a shared/team/global memory scope.
+
+2. **Alert metadata surfaced in the API** — `POST /api/v2/filter/memory` now returns `cross_agent_alert`, `cross_agent_findings`, and `risk_score` so hosts can separate ordinary sanitization from cross-agent poisoning risk.
+
+3. **Unified evaluate path updated** — `POST /api/v2/evaluate` now carries cross-agent memory findings into the combined verdict and raises the effective risk score when shared-memory poisoning is present.
+
+4. **Evidence continuity added** — memory filtering now emits `MEMORY_FILTERED` events with shared-memory context, and high-risk cases emit `MEMORY_CROSS_AGENT_ALERT`.
+
+5. **Vestigia correlation extended** — `vestigia/core/event_correlator.py` now flags tool execution shortly after `MEMORY_CROSS_AGENT_ALERT` as a dedicated anomaly pattern.
+
+6. **Regression tests added** — the functional and adversarial suites now cover cross-agent shared-memory poisoning in addition to existing memory sanitization checks.
+
+### Verification
+
+- `python3 -m py_compile` on modified memory-poisoning, API, evidence, and test modules: PASS
+- `python3 test_suite_complete.py`: PASS (`63/67` passed, `4` skipped for optional providers)
+- `python3 test_adversarial_efficacy.py`: PASS (`38/38` passed, `3` skipped for optional providers)
+- `python3 test_e2e_scenarios.py`: PASS (`28/28` steps passed)
+
+## What Changed (2026-04-07) — A2A Chain-of-Thought Contamination
+
+VerityFlux now treats inherited reasoning from other agents as a runtime trust boundary. This closes the practical A2A reasoning gap where a downstream agent could execute on a prior agent's unsafe or unvalidated hidden reasoning.
+
+### Key changes
+
+1. **A2A CoT contamination detection added** — `cognitive_firewall/reasoning_interceptor.py` now detects contaminated inherited reasoning during agent handoffs, including inherited approval claims, disabled-safety claims, and private scratchpad/chain-of-thought content.
+
+2. **Reasoning interception API extended** — `POST /api/v2/intercept/reasoning` now accepts handoff metadata (`handoff_from_agent_id`, `handoff_channel`, `handoff_shared_reasoning`, `handoff_metadata`) and returns contamination status, score, and findings.
+
+3. **Unified evaluate path updated** — `POST /api/v2/evaluate` now propagates A2A reasoning contamination findings into the combined verdict when inherited reasoning is present.
+
+4. **Evidence continuity added** — contaminated handoff reasoning now emits `REASONING_A2A_ALERT` events so Vestigia can retain traceable evidence of unsafe inherited reasoning.
+
+5. **Vestigia correlation extended** — `vestigia/core/event_correlator.py` now flags tool execution shortly after `REASONING_A2A_ALERT` as a dedicated anomaly pattern.
+
+6. **Regression tests added** — the functional and adversarial suites now cover inherited A2A CoT contamination scenarios in addition to protocol and memory-layer checks.
+
+### Verification
+
+- `python3 -m py_compile` on modified reasoning, API, evidence, and test modules: PASS
+- `python3 test_suite_complete.py`: PASS (`64/68` passed, `4` skipped for optional providers)
+- `python3 test_adversarial_efficacy.py`: PASS (`39/39` passed, `3` skipped for optional providers)
+- `python3 test_e2e_scenarios.py`: PASS (`28/28` steps passed)
+- `python3 preflight_check.py`: PASS
+- `python3 reliability_check.py`: PASS
+
+## What Changed (2026-03-30) — Skill-Layer AST10 Assessment
+
+VerityFlux now includes a first-class skill security path for assessing agent behavior packages and manifests before activation. This extends the suite from runtime-only verification into pre-activation skill-layer assessment.
+
+### Key changes
+
+1. **Skill assessment engine activated** — `core/skill_security.py` now serves as the AST01-AST10 assessment engine for `SKILL.md`, `skill.json`, `manifest.json`, and `package.json` inputs.
+
+2. **Concrete AST10 gap matrix** — the suite now exposes a gap matrix showing current in-suite coverage, mapped controls across Tessera/VerityFlux/Vestigia, and residual ecosystem-level gaps.
+
+3. **New API endpoints** — VerityFlux now exposes:
+   - `POST /api/v2/skills/assess`
+   - `GET /api/v2/skills/assessments`
+   - `GET /api/v2/skills/assessments/{assessment_id}`
+   - `GET /api/v2/skills/gap-matrix`
+
+4. **Persistent assessment history** — skill assessments are stored separately from runtime scan history and survive restarts via `data/skill_assessments.json`.
+
+5. **Dashboard integration** — the Streamlit scanner now includes a **Skill Security** tab with upload/paste assessment flow, recent assessment history, AST10 coverage view, normalized manifest view, and suite control mapping.
+
+6. **Cross-plane evidence wiring** — every completed skill assessment emits an integration event so Vestigia can retain evidence continuity and operators can trace recommended control actions back to Tessera and VerityFlux.
 
 ## What Changed (v2.1.0)
 
-VerityFlux was upgraded from simulated/demo detection to real production scanning. All 20 OWASP detectors now query live LLM endpoints with adversarial prompts and analyze actual responses.
+VerityFlux was upgraded from simulated/demo detection to real production scanning. All 20 core OWASP detectors now query live LLM endpoints with adversarial prompts and analyze actual responses. The platform now also includes 3 workflow fuzz detectors and 4 MCP detectors as optional scan modes.
 
 ### Key changes
 
 1. **API key pipeline fixed** — credentials flow from UI -> API (`ScanTargetRequest` with backward-compatible model_validator) -> `_build_target_dict()` -> detectors -> `LLMAdapter`. Previously the API key was nested under `credentials` and never reached detectors.
 
-2. **Shared LLM adapter** — new `detectors/common.py` provides `get_llm_adapter(target)` used by all 20 detectors. Supports OpenAI, Anthropic, Azure OpenAI, Hugging Face, Ollama, and Mock providers.
+2. **Shared LLM adapter** — new `detectors/common.py` provides `get_llm_adapter(target)` used by all 20 core detectors. Supports OpenAI, Anthropic, Azure OpenAI, Hugging Face, Ollama, and Mock providers.
 
 3. **All `random.random()` removed** — infrastructure capability checks (sandbox, RBAC, approval workflows, code validation, cost controls, circuit breakers, error isolation) now use declared target capabilities (`target.get('has_X', False)`) instead of random coin flips.
 
@@ -27,10 +130,10 @@ VerityFlux was upgraded from simulated/demo detection to real production scannin
 
 ## Verification
 
-- All 20 detectors return valid `ThreatDetectionResult` in mock mode.
+- All 20 core detectors return valid `ThreatDetectionResult` in mock mode.
 - Zero `random.random()` calls remain in any detector.
 - Zero template variables (`${name}`, `${cat}`, `${enum}`) remain.
-- Full scanner integration test passes with 20 detectors producing differentiated results.
+- Full scanner integration test passes with 20 core detectors producing differentiated results.
 - Ollama integration tested: real LLM responses flow through all detectors with `scan_mode="real"`.
 
 ## Files Modified

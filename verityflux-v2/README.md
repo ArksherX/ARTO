@@ -2,9 +2,17 @@
 
 ## Overview
 
-VerityFlux is a production security scanner for LLM and agentic AI systems. It tests real targets against the **OWASP LLM Top 10 (2025)** and **OWASP Agentic AI Top 10 (2026)** — 20 vulnerability categories total — by sending adversarial prompts to live LLM endpoints and analyzing responses for unsafe behavior.
+VerityFlux is a production security scanner for LLM and agentic AI systems. It tests real targets against the **OWASP LLM Top 10 (2025)** and **OWASP Agentic AI Top 10 (2026)** — 20 core vulnerability categories total — by sending adversarial prompts to live LLM endpoints and analyzing responses for unsafe behavior. It also supports **3 workflow fuzz detectors** and **4 MCP security detectors** as optional scan modes.
+
+VerityFlux also performs **live protocol-integrity enforcement** for structured tool-call and agent-message flows. It can detect and score **schema drift**, **field smuggling**, **contract desynchronization**, and **multi-hop trust collapse** through the runtime interception path and dedicated MCP analysis APIs.
+
+In the runtime memory path, VerityFlux now distinguishes ordinary retrieval sanitization from **cross-agent working-memory poisoning**. Shared-memory entries originating from other agents or shared/team/global stores are treated as trust-boundary crossings and surfaced as dedicated alerts when they contain poisoned control content.
+
+In the runtime reasoning path, VerityFlux now detects **A2A chain-of-thought contamination** when inherited reasoning from another agent carries unsafe approval claims, hidden scratchpad content, disabled-safety claims, or unvalidated continuation instructions.
 
 VerityFlux supports **OpenAI**, **Anthropic**, **Azure OpenAI**, **Hugging Face**, **Ollama** (local), and **custom endpoints**. A **mock mode** is available for demos and CI pipelines where no API key is needed.
+
+VerityFlux also supports **skill-layer assessment** for agent behavior packages and manifests. Operators can assess `SKILL.md`, `skill.json`, `manifest.json`, and `package.json` content against AST01-AST10 style risks, store the result, and map findings directly to **Tessera** identity controls, **VerityFlux** policy gates, and **Vestigia** evidence workflows.
 
 ---
 
@@ -15,8 +23,10 @@ VerityFlux supports **OpenAI**, **Anthropic**, **Azure OpenAI**, **Hugging Face*
 1. **Onboard** your agent or LLM target (via UI, API, or Tessera import).
 2. **Declare capabilities** — what security controls the target has (sandbox, RBAC, approval workflows, circuit breakers, etc.).
 3. **Provide credentials** — API key for the LLM provider (or use Ollama for local models).
-4. **Run scan** — VerityFlux sends adversarial prompts through 20 detectors against the live LLM endpoint.
+4. **Run scan** — VerityFlux sends adversarial prompts through 20 core detectors against the live LLM endpoint, with 3 fuzz and 4 MCP detectors available when those scan modes are enabled.
 5. **Analyze results** — each detector returns a `ThreatDetectionResult` with risk level, confidence, evidence, and actionable recommendations.
+6. **Assess protocol integrity** — review MCP Security status or call the protocol-integrity API to inspect structured message envelopes before execution.
+7. **Assess skills** — optionally upload or paste a skill manifest/package in the Scanner UI's **Skill Security** tab to evaluate skill-layer risks before activation.
 
 Every scan result includes a `scan_mode` field (`"real"`, `"mock"`, or `"unknown"`) so operators always know whether findings come from actual LLM responses or simulated data.
 
@@ -501,5 +511,5 @@ verityflux-v2/
 | 2.3.1 | 2026-02-18 | Scan history persistence, fuzz/MCP detector files, scan flag passthrough, AttackVector enums, type handling fixes. |
 | 2.3.0 | 2026-02-17 | Enterprise features: runtime enforcement layer, MCP security scanning, agentic fuzz testing, AIBOM, tool manifest signing, 12 new API endpoints, 6 new dashboard tabs. OWASP AI Exchange + MCP Security Guide alignment. |
 | 2.2.0 | 2026-02 | Scan-from-agent bridge, Azure OpenAI, OWASP alignment (crescendo + evasion), context fields |
-| 2.1.0 | 2026-02 | Real detection: all 20 detectors query live LLMs, capability-based checks, scan_mode metadata |
+| 2.1.0 | 2026-02 | Real detection: all 20 core detectors query live LLMs, capability-based checks, scan_mode metadata |
 | 2.0.0 | 2026-01 | Initial v2 with OWASP Agentic Top 10 coverage |

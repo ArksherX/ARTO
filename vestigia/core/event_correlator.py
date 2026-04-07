@@ -70,6 +70,27 @@ class EventCorrelator:
             "preceding_actions": ["TOOL_MANIFEST_FAILED"],
             "max_window_seconds": 30,
         },
+        "protocol_alert_then_execution": {
+            "description": "Tool executed shortly after protocol integrity alert",
+            "severity": "critical",
+            "trigger_actions": ["TOOL_EXECUTION"],
+            "preceding_actions": ["PROTOCOL_INTEGRITY_ALERT"],
+            "max_window_seconds": 45,
+        },
+        "reasoning_a2a_then_execution": {
+            "description": "Tool executed shortly after A2A reasoning contamination alert",
+            "severity": "critical",
+            "trigger_actions": ["TOOL_EXECUTION"],
+            "preceding_actions": ["REASONING_A2A_ALERT"],
+            "max_window_seconds": 45,
+        },
+        "cross_agent_memory_then_execution": {
+            "description": "Tool executed shortly after cross-agent memory poisoning alert",
+            "severity": "critical",
+            "trigger_actions": ["TOOL_EXECUTION"],
+            "preceding_actions": ["MEMORY_CROSS_AGENT_ALERT"],
+            "max_window_seconds": 45,
+        },
     }
 
     def __init__(self, ledger: Optional[VestigiaLedger] = None):
@@ -201,7 +222,12 @@ class EventCorrelator:
             action = e.get("action_type", "")
             if action.startswith("TOKEN") or action.startswith("DELEGATION"):
                 components.add("tessera")
-            elif action.startswith("REASONING") or action.startswith("TOOL") or action.startswith("MEMORY"):
+            elif (
+                action.startswith("REASONING")
+                or action.startswith("TOOL")
+                or action.startswith("MEMORY")
+                or action.startswith("PROTOCOL")
+            ):
                 components.add("verityflux")
             else:
                 components.add("vestigia")

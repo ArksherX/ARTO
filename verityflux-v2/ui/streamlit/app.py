@@ -759,9 +759,19 @@ def api_get_rationalization_events(api_base_url: str, api_key: Optional[str], li
 def api_get_mcp_status(api_base_url: str, api_key: Optional[str], limit: int = 200) -> Dict[str, Any]:
     out = _api_get_json(api_base_url, api_key, f"/api/v2/mcp/status?limit={int(limit)}")
     if not out.get("ok"):
-        return {"manifests": [], "rug_pull_alerts": [], "schema": {"validated_calls": 0, "violations": 0, "recent_violations": []}}
+        return {
+            "manifests": [],
+            "rug_pull_alerts": [],
+            "schema": {"validated_calls": 0, "violations": 0, "recent_violations": []},
+            "protocol_integrity": {"assessed_messages": 0, "alerts": 0, "recent_alerts": []},
+        }
     data = out.get("data", {})
-    return data if isinstance(data, dict) else {"manifests": [], "rug_pull_alerts": [], "schema": {"validated_calls": 0, "violations": 0, "recent_violations": []}}
+    return data if isinstance(data, dict) else {
+        "manifests": [],
+        "rug_pull_alerts": [],
+        "schema": {"validated_calls": 0, "violations": 0, "recent_violations": []},
+        "protocol_integrity": {"assessed_messages": 0, "alerts": 0, "recent_alerts": []},
+    }
 
 
 def api_get_aibom_live(api_base_url: str, api_key: Optional[str]) -> Dict[str, Any]:
@@ -822,6 +832,53 @@ def api_get_fuzz_findings(api_base_url: str, api_key: Optional[str], limit_scans
                     "detected_at": row.get("started_at"),
                 })
     return findings_out
+
+
+def api_get_skill_gap_matrix(api_base_url: str, api_key: Optional[str]) -> List[Dict[str, Any]]:
+    out = _api_get_json(api_base_url, api_key, "/api/v2/skills/gap-matrix")
+    if not out.get("ok"):
+        return []
+    data = out.get("data", [])
+    return data if isinstance(data, list) else []
+
+
+def api_list_skill_assessments(
+    api_base_url: str,
+    api_key: Optional[str],
+    limit: int = 20,
+    severity: Optional[str] = None,
+    platform: Optional[str] = None,
+) -> Dict[str, Any]:
+    params = [f"limit={int(limit)}"]
+    if severity:
+        params.append(f"severity={severity}")
+    if platform:
+        params.append(f"platform={platform}")
+    path = "/api/v2/skills/assessments"
+    if params:
+        path += "?" + "&".join(params)
+    return _api_get_json(api_base_url, api_key, path)
+
+
+def api_assess_skill(api_base_url: str, api_key: Optional[str], payload: Dict[str, Any]) -> Dict[str, Any]:
+    base = (api_base_url or "").rstrip("/")
+    if not base:
+        return {"ok": False, "error": "Missing API base URL"}
+    try:
+        req = urllib.request.Request(
+            f"{base}/api/v2/skills/assess",
+            data=json.dumps(payload).encode("utf-8"),
+            method="POST",
+        )
+        req.add_header("Content-Type", "application/json")
+        if api_key:
+            req.add_header("X-API-Key", api_key)
+            req.add_header("Authorization", f"Bearer {api_key}")
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        return {"ok": True, "data": body}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
 
 
 def parse_agents_upload(uploaded_file) -> List[Dict[str, Any]]:
@@ -1693,7 +1750,7 @@ def page_dashboard():
             st.caption("No policy events loaded yet.")
 
     st.divider()
-    st.subheader("🧾 Governance & AIVSS")
+    st.subheader("🧾 Threat Layer Snapshot")
 
     report_path = _latest_file(["ops/evidence/**/aivss_report_*.json", "ops/evidence/aivss_report_*.json"])
     sbom_path = _latest_file(["ops/evidence/**/sbom_*.json", "ops/evidence/sbom_*.json"])
@@ -1712,7 +1769,7 @@ def page_dashboard():
         st.markdown("**AIVSS Report**")
         if report:
             summary = _aivss_gate_summary(report)
-            st.metric("Max AIVSS", f"{summary['max_score']:.1f}", delta=summary["max_severity"])
+            st.metric("Max Threat Score", f"{summary['max_score']:.1f}", delta=summary["max_severity"])
             gate = summary["gate"]
             badge_class = "badge-info"
             if gate == "FAIL":
@@ -1720,23 +1777,24 @@ def page_dashboard():
             elif gate == "REQUIRE_APPROVAL":
                 badge_class = "badge-high"
             st.markdown(f"<span class='badge {badge_class}'>Gate: {gate}</span>", unsafe_allow_html=True)
-            st.caption(f"Report: {report_path}")
+            st.caption("Identity → Behavior → Evidence layers synchronized via Tessera, VerityFlux, Vestigia")
+            st.caption(f"Report file: {report_path}")
         else:
             st.info("No AIVSS report found yet.")
             st.code("python3 ops/generate_sbom.py\npython3 ops/aivss_report.py --sbom-path <sbom.json>", language="bash")
 
     with col_b:
-        st.markdown("**Supply Chain (SBOM)**")
+        st.markdown("**Supply Chain Evidence**")
         if sbom:
             st.metric("Components", sbom.get("component_count", 0))
             st.caption(f"SBOM: {sbom_path}")
         else:
-            st.info("No SBOM evidence found.")
+            st.info("No SBOM evidence found yet.")
             st.code("python3 ops/generate_sbom.py", language="bash")
 
     with col_c:
-        st.markdown("**Production Readiness**")
-        st.caption("Internal-only evidence. Not surfaced in public dashboard.")
+        st.markdown("**Operational Readiness**")
+        st.caption("Trace the action lifecycle via Tessera tokens, VerityFlux decisions, and Vestigia trails.")
     
     # Charts row
     col1, col2 = st.columns(2)
@@ -1899,7 +1957,7 @@ def page_scanner():
     """Security Scanner Interface"""
     st.title("🔍 Security Scanner")
     
-    tab1, tab2, tab3 = st.tabs(["New Scan", "Scan History", "Findings"])
+    tab1, tab2, tab3, tab4 = st.tabs(["New Scan", "Scan History", "Findings", "Skill Security"])
     
     with tab1:
         st.subheader("Configure New Scan")
@@ -2220,6 +2278,199 @@ def page_scanner():
                     else:
                         st.error(f"Failed to start scan: {started.get('error', 'unknown error')}")
     
+    with tab4:
+        st.subheader("Skill Manifest Assessment")
+        st.caption("Assess skill packages against AST01-AST10 using manifest-aware parsing and suite control mapping.")
+
+        recent_assessments_resp = api_list_skill_assessments(
+            st.session_state.api_base_url,
+            st.session_state.vf_api_key,
+            limit=10,
+        )
+        recent_assessments = recent_assessments_resp.get("data", {}).get("items", []) if recent_assessments_resp.get("ok") else []
+        gap_matrix = api_get_skill_gap_matrix(st.session_state.api_base_url, st.session_state.vf_api_key)
+
+        metrics_col1, metrics_col2, metrics_col3 = st.columns(3)
+        metrics_col1.metric("Stored Assessments", len(recent_assessments))
+        metrics_col2.metric(
+            "Critical Assessments",
+            sum(1 for item in recent_assessments if str(item.get("overall_severity", "")).lower() == "critical"),
+        )
+        metrics_col3.metric(
+            "Platforms Seen",
+            len({str(item.get("platform", "generic")) for item in recent_assessments}),
+        )
+
+        form_col, history_col = st.columns([1.4, 1.0])
+
+        with form_col:
+            assessment_name = st.text_input("Skill / Package Name", value="sample-skill", key="skill_assessment_name")
+            uploaded_skill_files = st.file_uploader(
+                "Upload skill files",
+                type=["md", "json", "txt", "yaml", "yml"],
+                accept_multiple_files=True,
+                key="skill_assessment_files",
+                help="Upload a primary manifest plus optional supporting files such as scripts, hooks, or memory files.",
+            )
+
+            uploaded_names = [item.name for item in uploaded_skill_files] if uploaded_skill_files else []
+            default_primary = uploaded_names[0] if uploaded_names else "skill.md"
+            selected_primary = st.selectbox(
+                "Primary manifest file",
+                uploaded_names if uploaded_names else [default_primary],
+                key="skill_assessment_primary",
+            )
+            manual_primary_name = st.text_input(
+                "Manual primary filename",
+                value=default_primary if not uploaded_names else selected_primary,
+                key="skill_assessment_manual_primary",
+                help="Used when pasting content directly or overriding an uploaded filename.",
+            )
+
+            platform_hint = st.selectbox(
+                "Platform Hint",
+                ["auto", "openclaw", "claude_code", "cursor_codex", "vscode", "generic"],
+                index=0,
+                key="skill_assessment_platform",
+            )
+            source_hint = st.selectbox(
+                "Source",
+                ["manual", "upload", "repository", "registry"],
+                index=1 if uploaded_names else 0,
+                key="skill_assessment_source",
+            )
+
+            manual_content = st.text_area(
+                "Manifest / primary file content",
+                height=220,
+                key="skill_assessment_content",
+                placeholder="Paste SKILL.md frontmatter, skill.json, manifest.json, or package.json content here when not uploading files.",
+            )
+
+            if st.button("Assess Skill Package", type="primary", use_container_width=True, key="skill_assessment_run"):
+                primary_filename = selected_primary if uploaded_names else manual_primary_name.strip()
+                supporting_files: Dict[str, str] = {}
+                primary_content = manual_content
+
+                if uploaded_skill_files:
+                    decoded_files: Dict[str, str] = {}
+                    for item in uploaded_skill_files:
+                        decoded_files[item.name] = item.getvalue().decode("utf-8", errors="replace")
+                    primary_content = decoded_files.get(selected_primary, "")
+                    supporting_files = {name: body for name, body in decoded_files.items() if name != selected_primary}
+
+                if not assessment_name.strip():
+                    st.error("Skill / Package Name is required.")
+                elif not primary_filename:
+                    st.error("Primary manifest filename is required.")
+                elif not primary_content.strip():
+                    st.error("Primary manifest content is required.")
+                else:
+                    payload = {
+                        "name": assessment_name.strip(),
+                        "content": primary_content,
+                        "primary_filename": primary_filename,
+                        "platform": None if platform_hint == "auto" else platform_hint,
+                        "source": source_hint,
+                        "supporting_files": supporting_files,
+                    }
+                    with st.spinner("Running skill assessment..."):
+                        assessed = api_assess_skill(st.session_state.api_base_url, st.session_state.vf_api_key, payload)
+                    if assessed.get("ok"):
+                        st.session_state.skill_last_assessment = assessed.get("data")
+                        st.success(f"Assessment completed: {assessed['data'].get('assessment_id')}")
+                    else:
+                        st.error(f"Skill assessment failed: {assessed.get('error', 'unknown error')}")
+
+            latest_assessment = st.session_state.get("skill_last_assessment")
+            if latest_assessment:
+                st.markdown("---")
+                st.markdown("**Latest Assessment**")
+                summary_cols = st.columns(4)
+                summary_cols[0].metric("Risk Score", f"{latest_assessment.get('overall_risk_score', 0):.1f}")
+                summary_cols[1].metric("Severity", str(latest_assessment.get("overall_severity", "low")).upper())
+                summary_cols[2].metric("Findings", int(latest_assessment.get("finding_count", 0)))
+                summary_cols[3].metric("Platform", latest_assessment.get("platform", "generic"))
+
+                finding_rows = latest_assessment.get("findings", [])
+                if finding_rows:
+                    findings_df = pd.DataFrame([
+                        {
+                            "AST": finding.get("ast_id"),
+                            "Title": finding.get("title"),
+                            "Severity": str(finding.get("severity", "")).upper(),
+                            "Risk Score": finding.get("risk_score"),
+                            "Summary": finding.get("summary"),
+                        }
+                        for finding in finding_rows
+                    ])
+                    st.dataframe(findings_df, use_container_width=True, hide_index=True)
+
+                    for finding in finding_rows:
+                        with st.expander(f"[{finding.get('ast_id')}] {finding.get('title')}"):
+                            st.write(finding.get("summary"))
+                            st.markdown("**Evidence**")
+                            evidence = finding.get("evidence") or []
+                            if evidence:
+                                for item in evidence:
+                                    st.code(str(item), language="text")
+                            else:
+                                st.caption("No explicit evidence captured.")
+                            st.markdown("**Recommendations**")
+                            for item in finding.get("recommendations") or []:
+                                st.write(f"- {item}")
+
+                mapped_controls = latest_assessment.get("mapped_controls") or {}
+                if mapped_controls:
+                    st.markdown("**Suite Control Mapping**")
+                    mapped_df = pd.DataFrame([
+                        {"Plane": plane.title(), "Controls": " | ".join(controls)}
+                        for plane, controls in mapped_controls.items()
+                    ])
+                    st.dataframe(mapped_df, use_container_width=True, hide_index=True)
+
+                with st.expander("Normalized Manifest", expanded=False):
+                    st.json(latest_assessment.get("normalized_manifest", {}))
+
+        with history_col:
+            st.markdown("**Recent Assessments**")
+            if recent_assessments:
+                recent_df = pd.DataFrame([
+                    {
+                        "Name": item.get("name"),
+                        "Platform": item.get("platform"),
+                        "Severity": str(item.get("overall_severity", "")).upper(),
+                        "Risk": item.get("overall_risk_score"),
+                        "When": format_timestamp(item.get("generated_at")),
+                    }
+                    for item in recent_assessments
+                ])
+                st.dataframe(recent_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No skill assessments recorded yet.")
+
+            st.markdown("---")
+            st.markdown("**AST10 Coverage Matrix**")
+            if gap_matrix:
+                gap_df = pd.DataFrame([
+                    {
+                        "AST": row.get("ast_id"),
+                        "Title": row.get("title"),
+                        "Coverage": row.get("assessment_coverage"),
+                        "Residual Gap": row.get("residual_gap"),
+                    }
+                    for row in gap_matrix
+                ])
+                st.dataframe(gap_df, use_container_width=True, hide_index=True)
+                with st.expander("Control Details", expanded=False):
+                    for row in gap_matrix:
+                        st.markdown(f"**{row.get('ast_id')} {row.get('title')}**")
+                        for control in row.get("suite_controls", []):
+                            st.write(f"- {control}")
+                        st.caption(f"Residual gap: {row.get('residual_gap')}")
+            else:
+                st.info("AST10 gap matrix unavailable.")
+
     with tab2:
         st.subheader("Scan History")
 
@@ -3474,13 +3725,14 @@ def page_session_drift():
 def page_mcp_security():
     """MCP Security Dashboard"""
     st.title("MCP Security")
-    st.markdown("Tool manifest status, rug-pull alerts, and schema validation.")
+    st.markdown("Tool manifest status, rug-pull alerts, schema validation, and protocol-integrity monitoring.")
 
-    tab1, tab2, tab3 = st.tabs(["Manifest Status", "Rug-Pull Alerts", "Schema Validation"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Manifest Status", "Rug-Pull Alerts", "Schema Validation", "Protocol Integrity"])
     mcp = api_get_mcp_status(st.session_state.api_base_url, st.session_state.vf_api_key, limit=500)
     manifests = mcp.get("manifests", [])
     alerts = mcp.get("rug_pull_alerts", [])
     schema = mcp.get("schema", {})
+    protocol = mcp.get("protocol_integrity", {})
 
     with tab1:
         st.subheader("Signed Tool Manifests")
@@ -3514,6 +3766,39 @@ def page_mcp_security():
             st.dataframe(pd.DataFrame(recent_violations), use_container_width=True, hide_index=True)
         else:
             st.info("No recent schema violations.")
+
+    with tab4:
+        st.subheader("Protocol Integrity Alerts")
+        col1, col2 = st.columns(2)
+        col1.metric("Assessed Messages", protocol.get("assessed_messages", 0))
+        col2.metric("Integrity Alerts", protocol.get("alerts", 0))
+        recent_alerts = protocol.get("recent_alerts", [])
+        if recent_alerts:
+            rows = []
+            for alert in recent_alerts:
+                rows.append({
+                    "timestamp": alert.get("generated_at") or alert.get("timestamp"),
+                    "agent_id": alert.get("agent_id"),
+                    "tool_name": alert.get("tool_name"),
+                    "severity": alert.get("overall_severity"),
+                    "risk_score": alert.get("overall_risk_score"),
+                    "findings": alert.get("finding_count"),
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            with st.expander("Recent protocol finding details", expanded=False):
+                for alert in recent_alerts[:10]:
+                    st.markdown(
+                        f"**{alert.get('tool_name','unknown')}** — {alert.get('overall_severity','unknown').upper()} "
+                        f"(risk {alert.get('overall_risk_score', 0)})"
+                    )
+                    findings = alert.get("findings", [])
+                    if findings:
+                        for finding in findings:
+                            st.write(f"- {finding.get('title')}: {finding.get('summary')}")
+                    else:
+                        st.write("- No finding details recorded.")
+        else:
+            st.info("No protocol-integrity alerts recorded.")
 
 
 def page_aibom_viewer():

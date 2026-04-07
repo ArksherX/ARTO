@@ -49,10 +49,13 @@ logger = logging.getLogger("verityflux.api")
 # Core scanner (v2)
 from core.scanner import VerityFluxScanner
 from core.types import ScanConfig, RiskLevel
+from core.skill_security import SkillSecurityAssessor
+from core.protocol_integrity import ProtocolIntegrityAnalyzer
 from cognitive_firewall.firewall import reload_all_policies
 
 # In-memory scan state (demo-safe; replace with DB/queue in production)
 SCAN_STORE: Dict[str, Dict[str, Any]] = {}
+SKILL_ASSESSMENT_STORE: Dict[str, Dict[str, Any]] = {}
 # In-memory SOC agent inventory (demo-safe; replace with DB in production)
 AGENT_STORE: Dict[str, Dict[str, Any]] = {}
 # In-memory HITL approval queue (demo-safe; replace with persistent DB in production)
@@ -61,6 +64,7 @@ APPROVAL_STORE: Dict[str, Dict[str, Any]] = {}
 RATIONALE_LOG: List[Dict[str, Any]] = []
 MCP_RUGPULL_LOG: List[Dict[str, Any]] = []
 MCP_SCHEMA_LOG: List[Dict[str, Any]] = []
+MCP_PROTOCOL_LOG: List[Dict[str, Any]] = []
 ENFORCEMENT_LOG: List[Dict[str, Any]] = []
 MCP_IDENTITY_REPLAY_CACHE: Dict[str, int] = {}
 MCP_IDENTITY_STATS: Dict[str, int] = {
@@ -99,6 +103,11 @@ def _mcp_secret() -> bytes:
     raw = os.getenv("VERITYFLUX_MCP_TOOL_SECRET", "")
     if raw:
         return raw.encode("utf-8")
+    strict_prod = os.getenv("SUITE_STRICT_MODE", "false").lower() in ("1", "true", "yes") and (
+        os.getenv("MLRT_MODE", "").lower() == "prod" or os.getenv("MODE", "").lower() == "prod"
+    )
+    if strict_prod:
+        raise RuntimeError("VERITYFLUX_MCP_TOOL_SECRET must be set in strict production mode")
     # Dev-safe stable secret for local usage
     return b"verityflux-mcp-dev-secret-change-in-production"
 
@@ -351,6 +360,13 @@ def _scan_store_path() -> FSPath:
     return BASE_DIR / "data" / "scan_results.json"
 
 
+def _skill_assessment_store_path() -> FSPath:
+    env_path = os.getenv("VERITYFLUX_SKILL_ASSESSMENT_STORE_PATH")
+    if env_path:
+        return FSPath(env_path)
+    return BASE_DIR / "data" / "skill_assessments.json"
+
+
 def _load_scan_store() -> None:
     path = _scan_store_path()
     if not path.exists():
@@ -416,6 +432,35 @@ def _save_scan_store() -> None:
             json.dump({"scans": serialisable}, f, indent=2, default=_json_default)
     except Exception as exc:
         logger.warning("Failed to save scan store: %s", exc)
+
+
+def _load_skill_assessment_store() -> None:
+    path = _skill_assessment_store_path()
+    if not path.exists():
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        assessments = payload.get("assessments", {})
+        if not isinstance(assessments, dict):
+            return
+        SKILL_ASSESSMENT_STORE.clear()
+        for assessment_id, row in assessments.items():
+            if isinstance(row, dict):
+                SKILL_ASSESSMENT_STORE[str(assessment_id)] = dict(row)
+        logger.info("Loaded %d skill assessments from disk", len(SKILL_ASSESSMENT_STORE))
+    except Exception as exc:
+        logger.warning("Failed to load skill assessment store: %s", exc)
+
+
+def _save_skill_assessment_store() -> None:
+    path = _skill_assessment_store_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"assessments": SKILL_ASSESSMENT_STORE}, f, indent=2, default=_json_default)
+    except Exception as exc:
+        logger.warning("Failed to save skill assessment store: %s", exc)
 
 
 def _load_policy() -> Dict[str, Any]:
@@ -941,6 +986,49 @@ class ScanResultResponse(BaseModel):
     findings: List[ScanFindingResponse]
 
 
+class SkillAssessmentRequest(BaseModel):
+    name: str
+    content: str
+    primary_filename: str = "skill.md"
+    platform: Optional[str] = None
+    source: str = "manual"
+    supporting_files: Dict[str, str] = Field(default_factory=dict)
+
+
+class SkillFindingResponse(BaseModel):
+    ast_id: str
+    title: str
+    severity: str
+    risk_score: float
+    summary: str
+    evidence: List[str]
+    recommendations: List[str]
+
+
+class SkillAssessmentResponse(BaseModel):
+    assessment_id: str
+    name: str
+    platform: str
+    primary_filename: str
+    source: str
+    generated_at: str
+    normalized_manifest: Dict[str, Any]
+    finding_count: int
+    overall_risk_score: float
+    overall_severity: str
+    findings: List[SkillFindingResponse]
+    mapped_controls: Dict[str, List[str]]
+    created_by: str
+
+
+class ASTGapRowResponse(BaseModel):
+    ast_id: str
+    title: str
+    assessment_coverage: str
+    suite_controls: List[str]
+    residual_gap: str
+
+
 # -----------------------------------------------------------------------------
 # Policy Models
 # -----------------------------------------------------------------------------
@@ -1279,6 +1367,7 @@ async def lifespan(app: FastAPI):
         # await hitl_service.start()
         _load_agent_store()
         _load_scan_store()
+        _load_skill_assessment_store()
 
         logger.info("Services initialized successfully")
         
@@ -1290,6 +1379,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     _save_agent_store()
     _save_scan_store()
+    _save_skill_assessment_store()
     logger.info("Shutting down VerityFlux API...")
     
     # if soc_service:
@@ -1889,6 +1979,103 @@ async def list_scans(
         offset=offset,
         has_more=(offset + limit) < total,
     )
+
+
+@app.post("/api/v2/skills/assess", response_model=SkillAssessmentResponse, tags=["Skill Security"])
+async def assess_skill_package(
+    request: SkillAssessmentRequest,
+    user: Dict = Depends(get_current_user),
+):
+    """
+    Assess a skill manifest or package against AST01-AST10 heuristics.
+    """
+    _require_admin(user)
+    assessor = SkillSecurityAssessor()
+    assessment = assessor.assess(
+        name=request.name,
+        content=request.content,
+        primary_filename=request.primary_filename,
+        platform=request.platform,
+        supporting_files=request.supporting_files,
+    )
+    record = assessment.to_dict()
+    record["source"] = request.source
+    record["created_by"] = user.get("user_id", "admin")
+    SKILL_ASSESSMENT_STORE[assessment.assessment_id] = record
+    _save_skill_assessment_store()
+
+    _emit_integration_event(
+        event_type="skill_assessment_completed",
+        agent_id=user.get("user_id", "unknown"),
+        status="success",
+        evidence={
+            "assessment_id": assessment.assessment_id,
+            "skill_name": request.name,
+            "platform": assessment.platform,
+            "primary_filename": request.primary_filename,
+            "overall_risk_score": assessment.overall_risk_score,
+            "overall_severity": assessment.overall_severity,
+            "finding_ids": [finding.ast_id for finding in assessment.findings],
+            "mapped_controls": assessment.mapped_controls,
+        },
+        correlation_id=assessment.assessment_id,
+    )
+    return record
+
+
+@app.get("/api/v2/skills/assessments", response_model=PaginatedResponse, tags=["Skill Security"])
+async def list_skill_assessments(
+    severity: Optional[str] = None,
+    platform: Optional[str] = None,
+    limit: int = Query(default=20, le=100),
+    offset: int = 0,
+    user: Dict = Depends(get_current_user),
+):
+    """
+    List stored skill assessments.
+    """
+    _require_admin(user)
+    rows = list(SKILL_ASSESSMENT_STORE.values())
+    if severity:
+        rows = [row for row in rows if str(row.get("overall_severity", "")).lower() == severity.lower()]
+    if platform:
+        rows = [row for row in rows if str(row.get("platform", "")).lower() == platform.lower()]
+    rows.sort(key=lambda row: str(row.get("generated_at", "")), reverse=True)
+    total = len(rows)
+    items = rows[offset: offset + limit]
+    return PaginatedResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        has_more=(offset + limit) < total,
+    )
+
+
+@app.get("/api/v2/skills/assessments/{assessment_id}", response_model=SkillAssessmentResponse, tags=["Skill Security"])
+async def get_skill_assessment(
+    assessment_id: str,
+    user: Dict = Depends(get_current_user),
+):
+    """
+    Get a stored skill assessment by id.
+    """
+    _require_admin(user)
+    record = SKILL_ASSESSMENT_STORE.get(assessment_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Skill assessment not found")
+    return record
+
+
+@app.get("/api/v2/skills/gap-matrix", response_model=List[ASTGapRowResponse], tags=["Skill Security"])
+async def get_skill_gap_matrix(
+    user: Dict = Depends(get_current_user),
+):
+    """
+    Return suite coverage status for AST01-AST10 skill-layer risks.
+    """
+    _require_admin(user)
+    return SkillSecurityAssessor().gap_matrix()
 
 
 # =============================================================================
@@ -2928,6 +3115,7 @@ _adversarial_scorer = None
 _intent_tracker = None
 _manifest_signer = None
 _schema_validator = None
+_protocol_integrity_analyzer = None
 _supply_chain = None
 _flight_recorder = None
 
@@ -3000,6 +3188,96 @@ def _get_schema_validator():
     return _schema_validator
 
 
+def _get_protocol_integrity_analyzer():
+    global _protocol_integrity_analyzer
+    if _protocol_integrity_analyzer is None:
+        _protocol_integrity_analyzer = ProtocolIntegrityAnalyzer()
+    return _protocol_integrity_analyzer
+
+
+def _build_protocol_expected_contract(
+    *,
+    tool_name: str,
+    agent_id: str,
+    session_id: Optional[str],
+    schema_version: Optional[str],
+    contract_id: Optional[str],
+) -> Dict[str, Any]:
+    schema_validator = _get_schema_validator()
+    contract = schema_validator.get_input_contract(tool_name)
+    contract["required_top_fields"] = ["agent_id", "tool_name", "arguments"]
+    contract["allowed_top_fields"] = [
+        "agent_id", "tool_name", "arguments", "session_id", "schema_version",
+        "contract_id", "metadata", "route", "protocol",
+    ]
+    contract["schema_version"] = schema_version or "1"
+    contract["bindings"] = {
+        "agent_id": agent_id,
+        "tool_name": tool_name,
+        "session_id": session_id,
+    }
+    if contract_id:
+        contract["contract_id"] = contract_id
+    return contract
+
+
+def _assess_protocol_integrity(
+    *,
+    protocol: str,
+    agent_id: str,
+    tool_name: str,
+    arguments: Dict[str, Any],
+    session_id: Optional[str],
+    schema_version: Optional[str],
+    contract_id: Optional[str],
+    route: Optional[List[Dict[str, Any]]],
+    metadata: Optional[Dict[str, Any]],
+    identity_result: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    analyzer = _get_protocol_integrity_analyzer()
+    payload = {
+        "agent_id": agent_id,
+        "tool_name": tool_name,
+        "arguments": arguments,
+        "session_id": session_id,
+        "schema_version": schema_version or "1",
+        "contract_id": contract_id or f"{protocol}:{tool_name}:v{schema_version or '1'}",
+        "protocol": protocol,
+        "metadata": metadata or {},
+        "route": route or [],
+    }
+    expected_contract = _build_protocol_expected_contract(
+        tool_name=tool_name,
+        agent_id=agent_id,
+        session_id=session_id,
+        schema_version=schema_version,
+        contract_id=contract_id,
+    )
+    identity_context = {
+        "valid": bool((identity_result or {}).get("valid", True)),
+        "agent_id": agent_id,
+        "tool_name": tool_name,
+        "session_id": session_id,
+        "has_sender_binding": bool(identity_result and identity_result.get("valid")),
+    }
+    assessment = analyzer.analyze(
+        protocol=protocol,
+        payload=payload,
+        expected_contract=expected_contract,
+        route=route or [],
+        identity_context=identity_context,
+    )
+    entry = assessment.to_dict()
+    entry.update({
+        "agent_id": agent_id,
+        "tool_name": tool_name,
+        "session_id": session_id,
+        "has_findings": assessment.finding_count > 0,
+    })
+    _append_capped(MCP_PROTOCOL_LOG, entry)
+    return entry
+
+
 def _get_supply_chain():
     global _supply_chain
     if _supply_chain is None:
@@ -3015,6 +3293,11 @@ class InterceptReasoningRequest(BaseModel):
     thinking_block: str
     original_goal: str
     reasoning_chain: Optional[List[str]] = None
+    session_id: Optional[str] = None
+    handoff_from_agent_id: Optional[str] = None
+    handoff_channel: Optional[str] = None
+    handoff_shared_reasoning: bool = False
+    handoff_metadata: Optional[Dict[str, Any]] = None
 
 @app.post("/api/v2/intercept/reasoning", tags=["Enterprise"])
 async def intercept_reasoning(req: InterceptReasoningRequest):
@@ -3025,7 +3308,26 @@ async def intercept_reasoning(req: InterceptReasoningRequest):
         thinking_block=req.thinking_block,
         original_goal=req.original_goal,
         reasoning_chain=req.reasoning_chain,
+        handoff_from_agent_id=req.handoff_from_agent_id,
+        handoff_channel=req.handoff_channel,
+        handoff_shared_reasoning=req.handoff_shared_reasoning,
+        handoff_metadata=req.handoff_metadata,
     )
+    if result.contamination_detected:
+        _emit_integration_event(
+            event_type="REASONING_A2A_ALERT",
+            agent_id=req.agent_id,
+            status="CRITICAL" if result.action == "block" else "WARNING",
+            reason="A2A chain-of-thought contamination detected in inherited reasoning",
+            session_id=req.session_id,
+            evidence={
+                "summary": "Inherited reasoning contained unsafe or unvalidated prior-agent control content",
+                "handoff_from_agent_id": req.handoff_from_agent_id,
+                "handoff_channel": req.handoff_channel,
+                "contamination_score": result.contamination_score,
+                "findings": result.contamination_findings,
+            },
+        )
     _append_capped(ENFORCEMENT_LOG, {
         "timestamp": datetime.now(UTC).isoformat(),
         "module": "reasoning",
@@ -3036,12 +3338,17 @@ async def intercept_reasoning(req: InterceptReasoningRequest):
         "tool_name": None,
         "violations": result.violations,
         "reasoning": result.reasoning,
+        "contamination_detected": result.contamination_detected,
+        "contamination_score": result.contamination_score,
     })
     return {
         "action": result.action,
         "risk_score": result.risk_score,
         "reasoning": result.reasoning,
         "violations": result.violations,
+        "contamination_detected": result.contamination_detected,
+        "contamination_score": result.contamination_score,
+        "contamination_findings": result.contamination_findings,
         "integrity_score": result.integrity_score,
         "drift_score": result.drift_score,
     }
@@ -3054,6 +3361,11 @@ class InterceptToolCallRequest(BaseModel):
     reasoning_context: Optional[str] = None
     original_goal: Optional[str] = None
     session_id: Optional[str] = None
+    protocol: Optional[str] = "mcp"
+    schema_version: Optional[str] = "1"
+    contract_id: Optional[str] = None
+    route: Optional[List[Dict[str, Any]]] = None
+    metadata: Optional[Dict[str, Any]] = None
     mcp_tool_token: Optional[str] = None
     sandbox_attested: bool = False
 
@@ -3103,6 +3415,18 @@ async def intercept_tool_call(req: InterceptToolCallRequest):
             "schema_registered": req.tool_name in schema_validator.get_registered_tools(),
         },
     )
+    protocol_result = _assess_protocol_integrity(
+        protocol=(req.protocol or "mcp"),
+        agent_id=req.agent_id,
+        tool_name=req.tool_name,
+        arguments=req.arguments,
+        session_id=req.session_id,
+        schema_version=req.schema_version,
+        contract_id=req.contract_id,
+        route=req.route,
+        metadata=req.metadata,
+        identity_result=identity_result,
+    )
 
     interceptor = _get_reasoning_interceptor()
     result = interceptor.intercept_tool_call(
@@ -3117,10 +3441,37 @@ async def intercept_tool_call(req: InterceptToolCallRequest):
     risk = float(result.risk_score)
     reasoning = result.reasoning
     violations = list(result.violations) + schema_result.get("errors", []) + containment.get("violations", [])
+    protocol_findings = protocol_result.get("findings", [])
+    for finding in protocol_findings:
+        title = finding.get("title", "Protocol integrity issue")
+        for detail in finding.get("evidence", [])[:3]:
+            violations.append(f"{title}: {detail}")
     if not containment.get("valid", True):
         risk = max(risk, 85.0)
         action = "block" if ENFORCEMENT_MODE == "enforce" else "escalate"
         reasoning = "Runtime containment policy violation"
+    if protocol_result.get("finding_count", 0) > 0:
+        risk = max(risk, float(protocol_result.get("overall_risk_score", 0.0)))
+        proto_sev = str(protocol_result.get("overall_severity", "low"))
+        if proto_sev == "critical":
+            action = "block" if ENFORCEMENT_MODE == "enforce" else "escalate"
+        elif proto_sev in ("high", "medium") and action == "allow":
+            action = "escalate"
+        reasoning = "Protocol integrity policy violation" if action != "allow" else "Protocol integrity warning"
+        _emit_integration_event(
+            event_type="PROTOCOL_INTEGRITY_ALERT",
+            agent_id=req.agent_id,
+            status="CRITICAL" if proto_sev == "critical" else "WARNING",
+            reason=reasoning,
+            session_id=req.session_id,
+            evidence={
+                "summary": f"Protocol integrity alert for {req.tool_name}",
+                "protocol": req.protocol or "mcp",
+                "overall_severity": proto_sev,
+                "risk_score": protocol_result.get("overall_risk_score"),
+                "findings": protocol_findings,
+            },
+        )
 
     _append_capped(ENFORCEMENT_LOG, {
         "timestamp": datetime.now(UTC).isoformat(),
@@ -3132,6 +3483,7 @@ async def intercept_tool_call(req: InterceptToolCallRequest):
         "tool_name": req.tool_name,
         "identity_valid": identity_result.get("valid", True),
         "containment_valid": containment.get("valid", True),
+        "protocol_findings": protocol_result.get("finding_count", 0),
     })
     return {
         "action": action,
@@ -3142,6 +3494,7 @@ async def intercept_tool_call(req: InterceptToolCallRequest):
         "schema_errors": schema_result.get("errors", []),
         "identity_valid": identity_result.get("valid", True),
         "containment_valid": containment.get("valid", True),
+        "protocol_integrity": protocol_result,
     }
 
 
@@ -3192,14 +3545,53 @@ async def filter_memory(req: FilterMemoryRequest):
     """Filter RAG/memory retrievals for poisoning and injection."""
     mf = _get_memory_filter()
     result = mf.filter_retrievals(req.retrievals, req.agent_context)
-    return {
+    payload = {
         "cleaned_retrievals": result.cleaned_retrievals,
         "filtered_retrievals": result.cleaned_retrievals,
         "removed_count": result.removed_count,
         "modified_count": result.modified_count,
         "threats_found": result.threats_found,
         "audit_trail": result.audit_trail,
+        "cross_agent_alert": result.cross_agent_alert,
+        "cross_agent_findings": result.cross_agent_findings,
+        "risk_score": result.risk_score,
     }
+    agent_context = req.agent_context or {}
+    agent_id = (
+        agent_context.get("agent_id")
+        or agent_context.get("requesting_agent_id")
+        or agent_context.get("actor_id")
+        or "unknown-agent"
+    )
+    session_id = agent_context.get("session_id")
+    if result.removed_count or result.modified_count or result.threats_found:
+        _emit_integration_event(
+            event_type="MEMORY_FILTERED",
+            agent_id=agent_id,
+            status="warning" if result.cross_agent_alert else "success",
+            reason="Memory retrieval sanitization applied",
+            session_id=session_id,
+            evidence={
+                "removed_count": result.removed_count,
+                "modified_count": result.modified_count,
+                "threats_found": result.threats_found,
+                "cross_agent_alert": result.cross_agent_alert,
+                "risk_score": result.risk_score,
+            },
+        )
+    if result.cross_agent_alert:
+        _emit_integration_event(
+            event_type="MEMORY_CROSS_AGENT_ALERT",
+            agent_id=agent_id,
+            status="warning",
+            reason="Cross-agent working-memory poisoning risk detected",
+            session_id=session_id,
+            evidence={
+                "findings": result.cross_agent_findings,
+                "risk_score": result.risk_score,
+            },
+        )
+    return payload
 
 
 # --- Adversarial Scorer Endpoint ---
@@ -3463,6 +3855,8 @@ async def get_mcp_status(limit: int = Query(default=200, ge=1, le=1000)):
 
     recent_schema = MCP_SCHEMA_LOG[-limit:]
     violations = [r for r in recent_schema if not r.get("valid", True)]
+    recent_protocol = MCP_PROTOCOL_LOG[-limit:]
+    protocol_alerts = [r for r in recent_protocol if r.get("finding_count", 0) > 0]
     return {
         "manifests": baselines,
         "rug_pull_alerts": list(reversed(MCP_RUGPULL_LOG[-limit:])),
@@ -3471,8 +3865,67 @@ async def get_mcp_status(limit: int = Query(default=200, ge=1, le=1000)):
             "violations": len(violations),
             "recent_violations": list(reversed(violations[-25:])),
         },
+        "protocol_integrity": {
+            "assessed_messages": len(recent_protocol),
+            "alerts": len(protocol_alerts),
+            "recent_alerts": list(reversed(protocol_alerts[-25:])),
+        },
         "updated_at": datetime.now(UTC).isoformat(),
     }
+
+
+class ProtocolIntegrityAnalyzeRequest(BaseModel):
+    protocol: str = "mcp"
+    agent_id: str
+    tool_name: str
+    arguments: Dict[str, Any]
+    session_id: Optional[str] = None
+    schema_version: Optional[str] = "1"
+    contract_id: Optional[str] = None
+    route: Optional[List[Dict[str, Any]]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    identity_valid: bool = True
+    has_sender_binding: bool = False
+
+
+@app.post("/api/v2/mcp/protocol-integrity/analyze", tags=["Enterprise"])
+async def analyze_protocol_integrity(req: ProtocolIntegrityAnalyzeRequest, user: Dict = Depends(get_current_user)):
+    """Analyze a structured A2A/MCP message for protocol integrity failures."""
+    identity_result = {
+        "valid": req.identity_valid,
+        "payload": {
+            "sub": user.get("user_id", "unknown"),
+        },
+    } if req.has_sender_binding else {"valid": req.identity_valid}
+    result = _assess_protocol_integrity(
+        protocol=req.protocol,
+        agent_id=req.agent_id,
+        tool_name=req.tool_name,
+        arguments=req.arguments,
+        session_id=req.session_id,
+        schema_version=req.schema_version,
+        contract_id=req.contract_id,
+        route=req.route,
+        metadata=req.metadata,
+        identity_result=identity_result,
+    )
+    if result.get("finding_count", 0) > 0:
+        sev = str(result.get("overall_severity", "warning")).upper()
+        _emit_integration_event(
+            event_type="PROTOCOL_INTEGRITY_ALERT",
+            agent_id=req.agent_id,
+            status="CRITICAL" if sev == "CRITICAL" else "WARNING",
+            reason="Explicit protocol integrity analysis found issues",
+            session_id=req.session_id,
+            evidence={
+                "summary": f"Protocol integrity analysis flagged {req.tool_name}",
+                "protocol": req.protocol,
+                "overall_severity": result.get("overall_severity"),
+                "risk_score": result.get("overall_risk_score"),
+                "findings": result.get("findings", []),
+            },
+        )
+    return result
 
 
 class MCPIssueTokenRequest(BaseModel):
@@ -3651,6 +4104,10 @@ class EvaluateActionRequest(BaseModel):
     agent_response: Optional[str] = None
     memory_retrievals: Optional[List[Dict[str, Any]]] = None
     sandbox_attested: bool = False
+    handoff_from_agent_id: Optional[str] = None
+    handoff_channel: Optional[str] = None
+    handoff_shared_reasoning: bool = False
+    handoff_metadata: Optional[Dict[str, Any]] = None
 
 
 @app.post("/api/v2/evaluate", tags=["Enterprise"])
@@ -3685,15 +4142,25 @@ async def evaluate_action(req: EvaluateActionRequest):
     # 2. Memory retrieval filtering
     if req.memory_retrievals:
         mf = _get_memory_filter()
-        filter_result = mf.filter_retrievals(req.memory_retrievals)
+        filter_result = mf.filter_retrievals(
+            req.memory_retrievals,
+            {
+                "agent_id": req.agent_id,
+                "session_id": req.session_id,
+            },
+        )
         verdict["details"]["memory_filter"] = {
             "removed_count": filter_result.removed_count,
             "modified_count": filter_result.modified_count,
             "threats_found": filter_result.threats_found,
+            "cross_agent_alert": filter_result.cross_agent_alert,
+            "cross_agent_findings": filter_result.cross_agent_findings,
         }
         verdict["modules_run"].append("memory_filter")
         if filter_result.threats_found:
             verdict["risk_score"] = max(verdict["risk_score"], 60.0)
+        if filter_result.cross_agent_alert:
+            verdict["risk_score"] = max(verdict["risk_score"], filter_result.risk_score)
         # Return cleaned retrievals for the caller to use
         verdict["cleaned_retrievals"] = filter_result.cleaned_retrievals
 
@@ -3704,14 +4171,35 @@ async def evaluate_action(req: EvaluateActionRequest):
             agent_id=req.agent_id,
             thinking_block=req.reasoning,
             original_goal=req.original_goal or "",
+            handoff_from_agent_id=req.handoff_from_agent_id,
+            handoff_channel=req.handoff_channel,
+            handoff_shared_reasoning=req.handoff_shared_reasoning,
+            handoff_metadata=req.handoff_metadata,
         )
         verdict["details"]["reasoning"] = {
             "action": intercept_result.action,
             "risk_score": intercept_result.risk_score,
             "violations": intercept_result.violations,
+            "contamination_detected": intercept_result.contamination_detected,
+            "contamination_findings": intercept_result.contamination_findings,
         }
         verdict["modules_run"].append("reasoning_interceptor")
         verdict["risk_score"] = max(verdict["risk_score"], intercept_result.risk_score)
+        if intercept_result.contamination_detected:
+            _emit_integration_event(
+                event_type="REASONING_A2A_ALERT",
+                agent_id=req.agent_id,
+                status="CRITICAL" if intercept_result.action == "block" else "WARNING",
+                reason="A2A chain-of-thought contamination detected in inherited reasoning",
+                session_id=req.session_id,
+                evidence={
+                    "summary": "Inherited reasoning contained unsafe or unvalidated prior-agent control content",
+                    "handoff_from_agent_id": req.handoff_from_agent_id,
+                    "handoff_channel": req.handoff_channel,
+                    "contamination_score": intercept_result.contamination_score,
+                    "findings": intercept_result.contamination_findings,
+                },
+            )
         if intercept_result.action in ("block", "escalate"):
             verdict["action"] = intercept_result.action
 
