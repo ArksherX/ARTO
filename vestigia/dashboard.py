@@ -486,6 +486,22 @@ def _safe_risk(event):
         return 0.0
 
 
+def _is_routine_token_event(action: str, status: str) -> bool:
+    action = str(action or "").upper()
+    status = str(status or "").upper()
+    return (
+        action in {"TOKEN_ISSUED", "TOKEN_VALIDATED", "TOKEN_REVOKED"}
+        and status in {"SUCCESS", "GRANTED", "REVOKED", "INFO", "WARNING"}
+    )
+
+
+def _calibrated_alert_risk(event) -> float:
+    anomaly_risk = _safe_risk(event)
+    if anomaly_risk > 0:
+        return float(anomaly_risk)
+    return float(estimate_event_risk(event))
+
+
 def _subject_actor(event):
     evidence = event.get("evidence") if isinstance(event.get("evidence"), dict) else {}
     return str(evidence.get("agent") or event.get("actor_id") or "")
@@ -628,7 +644,8 @@ def derive_siem_alerts(events):
         action = str(event.get("action_type") or "").upper()
         source_actor = str(event.get("actor_id") or "")
         subject_actor = str(evidence.get("agent") or source_actor)
-        risk = _safe_risk(event)
+        anomaly_risk = _safe_risk(event)
+        risk = _calibrated_alert_risk(event)
         path = str(evidence.get("path") or "")
 
         # Suppress known benign startup/UI noise from infrastructure probes.
@@ -640,6 +657,7 @@ def derive_siem_alerts(events):
         ):
             continue
 
+        routine_token_event = _is_routine_token_event(action, status)
         is_alert = (
             "ALERT" in action
             or status in {"CRITICAL", "DENIED", "FAILURE", "REVOKED", "BLOCKED"}
@@ -647,6 +665,11 @@ def derive_siem_alerts(events):
             or status == "WARNING"
             or risk >= 70
         )
+        if routine_token_event:
+            is_alert = (
+                status in {"CRITICAL", "DENIED", "FAILURE", "BLOCKED"}
+                or anomaly_risk >= 85
+            )
         if not is_alert:
             continue
 
@@ -660,6 +683,9 @@ def derive_siem_alerts(events):
         else:
             severity = "MEDIUM"
 
+        if routine_token_event and severity == "CRITICAL" and anomaly_risk < 90:
+            severity = "HIGH"
+
         summary = evidence.get("summary") or f"{action} detected"
         alerts.append({
             "timestamp": event.get("timestamp"),
@@ -668,7 +694,7 @@ def derive_siem_alerts(events):
             "action_type": event.get("action_type"),
             "status": status or "INFO",
             "severity": severity,
-            "risk": risk,
+            "risk": round(risk, 2),
             "summary": summary,
             "event": event,
         })
@@ -908,6 +934,10 @@ def render_dashboard():
             "⚠️ Ledger tail is chain-consistent but hash algorithm/salt compatibility differs. "
             "Monitoring mode remains active."
         )
+        st.caption(
+            "Recent entries are operationally trustworthy for monitoring, but older ledger material was written under a different compatibility regime. "
+            "Reset or rebuild the ledger if you need a fully pristine canonical integrity state."
+        )
     
     st.title("🏠 Dashboard Overview")
     st.caption("Phase 5: Anomaly scoring enabled")
@@ -957,7 +987,7 @@ def render_dashboard():
     
     st.markdown("---")
 
-    st.subheader("🧾 Governance & AIVSS")
+    st.subheader("🧾 Threat Layer Snapshot")
     report_path = _latest_file(["ops/evidence/**/aivss_report_*.json", "ops/evidence/aivss_report_*.json"])
     sbom_path = _latest_file(["ops/evidence/**/sbom_*.json", "ops/evidence/sbom_*.json"])
     readiness_path = None
@@ -970,18 +1000,18 @@ def render_dashboard():
     col_g1, col_g2, col_g3 = st.columns(3)
 
     with col_g1:
-        st.markdown("**AIVSS Report**")
+        st.markdown("**Runtime Threat Summary**")
         if report_data:
             max_score, max_severity, gate = _aivss_gate_summary(report_data)
-            st.metric("Max AIVSS", f"{max_score:.1f}", delta=max_severity)
-            st.caption(f"Gate: {gate}")
-            st.caption(f"Report: {report_path}")
+            st.metric("Max Threat Score", f"{max_score:.1f}", delta=max_severity)
+            st.caption(f"Layer gate: {gate}")
+            st.caption("Identity vetted by Tessera → behavior evaluated by VerityFlux → Vestigia preserves evidence.")
         else:
             st.caption("No AIVSS report found.")
             st.code("python3 ops/aivss_report.py --sbom-path <sbom.json>", language="bash")
 
     with col_g2:
-        st.markdown("**Supply Chain (SBOM)**")
+        st.markdown("**Supply Chain Evidence**")
         if sbom_data:
             st.metric("Components", sbom_data.get("component_count", 0))
             st.caption(f"SBOM: {sbom_path}")
@@ -990,14 +1020,16 @@ def render_dashboard():
             st.code("python3 ops/generate_sbom.py", language="bash")
 
     with col_g3:
-        st.markdown("**Production Readiness**")
-        st.caption("Internal-only evidence. Not surfaced in public dashboard.")
+        st.markdown("**Operator Guidance**")
+        st.caption("Use Tessera, VerityFlux, and Vestigia in concert to prove these threat layers remain contained.")
 
     st.markdown("---")
     
     st.subheader("🔐 Integrity Status")
     
-    if report and report.is_valid:
+    if report and getattr(report, "compatibility_mode", False):
+        st.warning(f"⚠️ **LEDGER INTEGRITY: COMPATIBILITY MODE** ({report.total_entries} entries)")
+    elif report and report.is_valid:
         st.success(f"✅ **LEDGER INTEGRITY: VALID** ({report.total_entries} entries)")
     else:
         st.error("🚨 **LEDGER INTEGRITY: COMPROMISED**")
@@ -1591,15 +1623,17 @@ def render_forensics():
             """)
     elif active_operational_incident:
         st.warning("⚠️ **OPERATIONAL INCIDENT SIGNALS DETECTED**")
+        if st.session_state.last_report and getattr(st.session_state.last_report, "compatibility_mode", False):
+            st.caption("Ledger monitoring is active in compatibility mode. These alerts reflect live operational signals, not a current ledger tampering verdict.")
         st.markdown("### Alert Summary (Last 300 Events)")
         c1, c2 = st.columns(2)
         c1.metric("Derived Alerts", len(recent_alerts))
         c2.metric("Critical/High", len(high_or_critical_alerts))
         st.markdown("---")
         for alert in recent_alerts[:10]:
-                st.markdown(
+            st.markdown(
                 f"- `{format_timestamp(alert['timestamp'])}` | `{alert['severity']}` | "
-                f"`{alert['actor_id']}` | `{alert['action_type']}` | risk={alert['risk']}"
+                f"`{alert['actor_id']}` | `{alert['action_type']}` | risk={alert['risk']:.2f}"
             )
     else:
         st.success("✅ **NO INCIDENTS DETECTED**")

@@ -756,7 +756,8 @@ def sign_action(agent_id: str, req: SignActionRequest):
 
 class TokenRequest(BaseModel):
     agent_id: str
-    tool: str
+    tool: Optional[str] = None
+    tool_name: Optional[str] = None
     duration_minutes: int = 60
     session_id: Optional[str] = None
     memory_hash: Optional[str] = None
@@ -770,7 +771,10 @@ class TokenRequest(BaseModel):
 def request_token(req: TokenRequest, request: Request, _: bool = Header(None)):
     """Generate token"""
     try:
-        if not _tool_allowed(req.tool):
+        requested_tool = req.tool or req.tool_name
+        if not requested_tool:
+            raise HTTPException(422, "Field 'tool' or 'tool_name' is required")
+        if not _tool_allowed(requested_tool):
             raise HTTPException(403, "Tool not allowed")
         agent = registry.get_agent(req.agent_id)
         if not agent:
@@ -792,7 +796,7 @@ def request_token(req: TokenRequest, request: Request, _: bool = Header(None)):
         # Generate token
         token = token_gen.generate_token(
             agent_id=req.agent_id,
-            tool=req.tool,
+            tool=requested_tool,
             custom_ttl=ttl_seconds,
             session_id=req.session_id,
             memory_hash=memory_hash,
@@ -804,7 +808,7 @@ def request_token(req: TokenRequest, request: Request, _: bool = Header(None)):
         
         # Check if token was generated
         if token is None:
-            raise HTTPException(400, f"Agent '{req.agent_id}' not found or not authorized for '{req.tool}'")
+            raise HTTPException(400, f"Agent '{req.agent_id}' not found or not authorized for '{requested_tool}'")
         
         # Extract token data
         token_str = token.token if hasattr(token, 'token') else None
@@ -816,19 +820,19 @@ def request_token(req: TokenRequest, request: Request, _: bool = Header(None)):
         
         # Log to Vestigia
         if VESTIGIA_AVAILABLE:
-            vestigia.log_token_issued(req.agent_id, req.tool, jti)
+            vestigia.log_token_issued(req.agent_id, requested_tool, jti)
 
         audit_logger.log_event(
             event_type="token_issued",
             agent_id=req.agent_id,
             status="success",
-            details={"tool": req.tool, "jti": jti}
+            details={"tool": requested_tool, "jti": jti}
         )
         _emit_integration_event(
             event_type="token_issued",
             agent_id=req.agent_id,
             status="success",
-            tool=req.tool,
+            tool=requested_tool,
             evidence={
                 "jti": jti,
                 "agent_key_id": registry.get_agent(req.agent_id).active_key_id if registry.get_agent(req.agent_id) else None,

@@ -14,9 +14,14 @@ from typing import Optional
 
 
 class AccessAuditLogger:
-    def __init__(self, dsn: Optional[str] = None, fallback_path: str = "logs/access_audit.jsonl"):
+    def __init__(self, dsn: Optional[str] = None, fallback_path: Optional[str] = None):
         self.dsn = dsn or os.getenv("VESTIGIA_DB_DSN")
-        self.fallback_path = Path(fallback_path)
+        if fallback_path is None:
+            fallback_path = str(Path(__file__).resolve().parents[1] / "logs" / "access_audit.jsonl")
+        path_obj = Path(fallback_path)
+        if not path_obj.is_absolute():
+            path_obj = Path(__file__).resolve().parents[1] / path_obj
+        self.fallback_path = path_obj
         self.fallback_path.parent.mkdir(parents=True, exist_ok=True)
 
     def log_access(
