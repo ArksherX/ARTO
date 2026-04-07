@@ -2,9 +2,25 @@
 set -euo pipefail
 
 ROOT_DIR="${ROOT_DIR:-/home/arksher/ml-redteam}"
+RUN_DIR="${ROOT_DIR}/run"
 
 # Ports used by suite (defaults)
 PORTS=(8001 8002 8003 8501 8502 8503)
+
+# Stop using PID files first (set by launch_suite.sh).
+if [[ -d "${RUN_DIR}" ]]; then
+  for pidfile in "${RUN_DIR}"/*.pid; do
+    [[ -e "$pidfile" ]] || continue
+    pid=$(cat "$pidfile" 2>/dev/null || true)
+    if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
+      echo "Stopping $(basename "$pidfile" .pid) via pidfile..."
+      kill "$pid" 2>/dev/null || true
+    fi
+    rm -f "$pidfile"
+  done
+fi
+
+sleep 1
 
 # Kill by known ports (covers backgrounded launch_suite.sh)
 if command -v lsof >/dev/null 2>&1; then
@@ -27,4 +43,3 @@ if command -v lsof >/dev/null 2>&1; then
   echo "Remaining listeners (if any):"
   lsof -n -P -iTCP -sTCP:LISTEN | grep -E "(8001|8002|8003|8501|8502|8503)" || true
 fi
-

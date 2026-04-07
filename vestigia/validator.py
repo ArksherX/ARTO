@@ -407,7 +407,13 @@ class VestigiaValidator:
         """Validate Merkle witness"""
         try:
             with open(self.witness_path, 'r') as f:
-                witness_data = json.load(f)
+                witness_content = f.read().strip()
+            try:
+                witness_data = json.loads(witness_content)
+            except json.JSONDecodeError:
+                # Legacy/plain-text witness format is handled by
+                # _validate_witness_consistency(); do not warn here.
+                return
             
             witnesses = witness_data.get('witnesses', [])
             
@@ -463,7 +469,25 @@ class VestigiaValidator:
         
         try:
             with open(witness_file, 'r') as f:
-                witness_hash = f.read().strip()
+                witness_content = f.read().strip()
+
+            # Structured Merkle witness files are validated separately in
+            # _validate_merkle_witness(). Do not misinterpret them as the
+            # legacy plain-text last-hash witness format.
+            try:
+                witness_data = json.loads(witness_content)
+                if isinstance(witness_data, dict) and "witnesses" in witness_data:
+                    if not witness_data.get("witnesses"):
+                        report.add_issue(
+                            ValidationStatus.WARNING,
+                            "NO_WITNESSES",
+                            "Structured Merkle witness file exists but no witness anchors are recorded yet"
+                        )
+                    return
+            except json.JSONDecodeError:
+                pass
+
+            witness_hash = witness_content
             
             if not ledger:
                 report.add_issue(

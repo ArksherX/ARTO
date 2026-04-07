@@ -10,14 +10,20 @@ import json
 import os
 import hashlib
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Dict, Any, Optional, Iterable
 
 
 class AuditChainLogger:
     """Tamper-evident audit logger with hash chaining."""
 
-    def __init__(self, log_path: str = "logs/audit_chain.jsonl"):
-        self.log_path = log_path
+    def __init__(self, log_path: Optional[str] = None):
+        if log_path is None:
+            log_path = str(Path(__file__).resolve().parents[1] / "logs" / "audit_chain.jsonl")
+        path_obj = Path(log_path)
+        if not path_obj.is_absolute():
+            path_obj = Path(__file__).resolve().parents[1] / path_obj
+        self.log_path = str(path_obj)
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         self._last_hash = self._load_last_hash()
         retention_days = int(os.getenv("TESSERA_AUDIT_RETENTION_DAYS", "0") or 0)
