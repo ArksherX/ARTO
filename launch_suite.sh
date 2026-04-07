@@ -5,6 +5,7 @@ set -euo pipefail
 RUN_MODE=${MODE:-"prod"}
 ROOT_DIR="${ROOT_DIR:-/home/arksher/ml-redteam}"
 SHARED_LOG="${ROOT_DIR}/shared_state/shared_audit.log"
+STRICT_MODE="${SUITE_STRICT_MODE:-false}"
 
 ENV_FILE="${ROOT_DIR}/.env"
 if [[ -f "${ENV_FILE}" ]]; then
@@ -23,10 +24,23 @@ export VESTIGIA_API_BASE="${VESTIGIA_API_BASE:-http://localhost:${VESTIGIA_PORT}
 export MLRT_INTEGRATION_ENABLED="${MLRT_INTEGRATION_ENABLED:-true}"
 export MLRT_VESTIGIA_INGEST_URL="${MLRT_VESTIGIA_INGEST_URL:-http://localhost:${VESTIGIA_PORT}/events}"
 export MLRT_VESTIGIA_API_KEY="${MLRT_VESTIGIA_API_KEY:-${VESTIGIA_API_KEY:-}}"
-export TESSERA_SECRET_KEY="${TESSERA_SECRET_KEY:-168595de6449925806d7b448d132a5ec6290cb0ce31f253826c2694586f05c0d21518555e12dc87de7088820e215aa2505008d87d8a64ce03f2cad74d8484b06}"
 export VERITYFLUX_POLICY_PATH="${VERITYFLUX_POLICY_PATH:-${ROOT_DIR}/verityflux-v2/config/policy.json}"
 export VERITYFLUX_API_BASE="${VERITYFLUX_API_BASE:-http://localhost:${VERITYFLUX_PORT}}"
-export VERITYFLUX_API_KEY="${VERITYFLUX_API_KEY:-vf_admin_demo_key}"
+
+if [[ "${STRICT_MODE,,}" == "true" || "${STRICT_MODE}" == "1" || "${STRICT_MODE,,}" == "yes" ]]; then
+    export TESSERA_SECRET_KEY="${TESSERA_SECRET_KEY:-}"
+    export TESSERA_ADMIN_KEY="${TESSERA_ADMIN_KEY:-}"
+    export VERITYFLUX_API_KEY="${VERITYFLUX_API_KEY:-}"
+    export VERITYFLUX_MCP_TOOL_SECRET="${VERITYFLUX_MCP_TOOL_SECRET:-}"
+    export VERITYFLUX_MANIFEST_KEY="${VERITYFLUX_MANIFEST_KEY:-}"
+    export VESTIGIA_SECRET_SALT="${VESTIGIA_SECRET_SALT:-}"
+else
+    export TESSERA_SECRET_KEY="${TESSERA_SECRET_KEY:-168595de6449925806d7b448d132a5ec6290cb0ce31f253826c2694586f05c0d21518555e12dc87de7088820e215aa2505008d87d8a64ce03f2cad74d8484b06}"
+    export TESSERA_ADMIN_KEY="${TESSERA_ADMIN_KEY:-tessera-demo-key-change-in-production}"
+    export VERITYFLUX_API_KEY="${VERITYFLUX_API_KEY:-vf_admin_demo_key}"
+    export VERITYFLUX_MCP_TOOL_SECRET="${VERITYFLUX_MCP_TOOL_SECRET:-verityflux-mcp-dev-secret-change-in-production}"
+    export VERITYFLUX_MANIFEST_KEY="${VERITYFLUX_MANIFEST_KEY:-default-manifest-signing-key}"
+fi
 
 mkdir -p "$(dirname "$SUITE_AUDIT_LOG")"
 

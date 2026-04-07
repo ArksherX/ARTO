@@ -17,7 +17,15 @@ from urllib import request as urllib_request
 from pathlib import Path
 
 # Environment defaults
-if not os.getenv('TESSERA_SECRET_KEY'):
+def _prod_mode() -> bool:
+    return os.getenv("MLRT_MODE", "").lower() == "prod" or os.getenv("MODE", "").lower() == "prod"
+
+
+def _strict_prod_mode() -> bool:
+    return _prod_mode() and os.getenv("SUITE_STRICT_MODE", "false").lower() in ("1", "true", "yes")
+
+
+if not os.getenv('TESSERA_SECRET_KEY') and not _strict_prod_mode():
     os.environ['TESSERA_SECRET_KEY'] = '168595de6449925806d7b448d132a5ec6290cb0ce31f253826c2694586f05c0d21518555e12dc87de7088820e215aa2505008d87d8a64ce03f2cad74d8484b06'
 # DPoP and memory binding are opt-in for production deployments
 if not os.getenv('TESSERA_REQUIRE_DPOP'):
@@ -26,9 +34,6 @@ if not os.getenv('TESSERA_REQUIRE_MEMORY_BINDING'):
     os.environ['TESSERA_REQUIRE_MEMORY_BINDING'] = 'false'
 if not os.getenv('TESSERA_REQUIRE_ACTION_SIGNATURE'):
     os.environ['TESSERA_REQUIRE_ACTION_SIGNATURE'] = 'true'
-
-def _prod_mode() -> bool:
-    return os.getenv("MLRT_MODE", "").lower() == "prod" or os.getenv("MODE", "").lower() == "prod"
 
 if _prod_mode():
     os.environ.setdefault("TESSERA_REQUIRE_DPOP", "true")
@@ -394,7 +399,12 @@ app.add_middleware(
 )
 
 # Auth
-ADMIN_KEY = "tessera-demo-key-change-in-production"
+ADMIN_KEY = os.getenv("TESSERA_ADMIN_KEY", "tessera-demo-key-change-in-production")
+if _strict_prod_mode():
+    if not os.getenv("TESSERA_SECRET_KEY"):
+        raise RuntimeError("TESSERA_SECRET_KEY must be set in strict production mode")
+    if ADMIN_KEY == "tessera-demo-key-change-in-production":
+        raise RuntimeError("TESSERA_ADMIN_KEY must be set to a non-demo value in strict production mode")
 
 def verify_admin(authorization: Optional[str] = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):

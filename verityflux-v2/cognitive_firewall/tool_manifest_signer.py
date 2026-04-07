@@ -48,6 +48,11 @@ class ToolManifestSigner:
 
     def __init__(self, signing_key: Optional[str] = None):
         key = signing_key or os.getenv("VERITYFLUX_MANIFEST_KEY", "default-manifest-signing-key")
+        strict_prod = os.getenv("SUITE_STRICT_MODE", "false").lower() in ("1", "true", "yes") and (
+            os.getenv("MLRT_MODE", "").lower() == "prod" or os.getenv("MODE", "").lower() == "prod"
+        )
+        if strict_prod and key == "default-manifest-signing-key":
+            raise RuntimeError("VERITYFLUX_MANIFEST_KEY must be set in strict production mode")
         self._signing_key = key.encode("utf-8")
         self._signed_baselines: Dict[str, SignedManifest] = {}
 

@@ -29,10 +29,97 @@ class SchemaValidator:
     """
 
     DEFAULT_MAX_SIZE_BYTES = 1024 * 1024  # 1MB
+    DEFAULT_SCHEMAS: Dict[str, Dict[str, Any]] = {
+        "read_file": {
+            "input": {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                    "path": {"type": "string", "maxLength": 4096},
+                },
+                "additionalProperties": False,
+            }
+        },
+        "file_reader": {
+            "input": {
+                "type": "object",
+                "required": ["path"],
+                "properties": {
+                    "path": {"type": "string", "maxLength": 4096},
+                },
+                "additionalProperties": False,
+            }
+        },
+        "execute_command": {
+            "input": {
+                "type": "object",
+                "required": ["command"],
+                "properties": {
+                    "command": {"type": "string", "maxLength": 4096},
+                },
+                "additionalProperties": False,
+            }
+        },
+        "database_query": {
+            "input": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string", "maxLength": 12000},
+                },
+                "additionalProperties": False,
+            }
+        },
+        "sql_executor": {
+            "input": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string", "maxLength": 12000},
+                },
+                "additionalProperties": False,
+            }
+        },
+        "send_email": {
+            "input": {
+                "type": "object",
+                "required": ["to", "subject", "body"],
+                "properties": {
+                    "to": {"type": "string", "maxLength": 512},
+                    "subject": {"type": "string", "maxLength": 512},
+                    "body": {"type": "string", "maxLength": 20000},
+                },
+                "additionalProperties": False,
+            }
+        },
+        "email_sender": {
+            "input": {
+                "type": "object",
+                "required": ["to", "subject", "body"],
+                "properties": {
+                    "to": {"type": "string", "maxLength": 512},
+                    "subject": {"type": "string", "maxLength": 512},
+                    "body": {"type": "string", "maxLength": 20000},
+                },
+                "additionalProperties": False,
+            }
+        },
+        "web_search": {
+            "input": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string", "maxLength": 2048},
+                },
+                "additionalProperties": False,
+            }
+        },
+    }
 
     def __init__(self):
         self._schemas: Dict[str, Dict[str, Any]] = {}
         self._max_size = self.DEFAULT_MAX_SIZE_BYTES
+        self._bootstrap_default_schemas()
 
     def register_schema(
         self, tool_name: str, input_schema: Dict[str, Any], output_schema: Optional[Dict[str, Any]] = None
@@ -41,6 +128,21 @@ class SchemaValidator:
         self._schemas[tool_name] = {
             "input": input_schema,
             "output": output_schema,
+        }
+
+    def get_schema(self, tool_name: str) -> Optional[Dict[str, Any]]:
+        """Return the registered schema bundle for a tool, if available."""
+        return self._schemas.get(tool_name)
+
+    def get_input_contract(self, tool_name: str) -> Dict[str, Any]:
+        """Return contract-style input metadata for protocol integrity checks."""
+        bundle = self._schemas.get(tool_name) or {}
+        schema = bundle.get("input") or {}
+        props = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        return {
+            "required_argument_fields": list(schema.get("required", [])) if isinstance(schema, dict) else [],
+            "allowed_argument_fields": list(props.keys()),
+            "additional_properties": schema.get("additionalProperties", True) if isinstance(schema, dict) else True,
         }
 
     def validate_input(
@@ -163,6 +265,12 @@ class SchemaValidator:
 
     def get_registered_tools(self) -> List[str]:
         return list(self._schemas.keys())
+
+    def _bootstrap_default_schemas(self) -> None:
+        for tool_name, bundle in self.DEFAULT_SCHEMAS.items():
+            if tool_name in self._schemas:
+                continue
+            self.register_schema(tool_name, bundle.get("input", {}), bundle.get("output"))
 
 
 __all__ = ["SchemaValidator", "ValidationResult"]

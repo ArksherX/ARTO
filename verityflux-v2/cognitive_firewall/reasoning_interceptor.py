@@ -7,6 +7,7 @@ scoring them for goal drift, integrity violations, and adversarial intent.
 Delegates to CoTIntegrityScorer and SemanticDriftDetector for analysis.
 """
 
+import re
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 from datetime import datetime, UTC
@@ -22,6 +23,9 @@ class InterceptionResult:
     risk_score: float  # 0-100
     reasoning: str
     violations: List[str] = field(default_factory=list)
+    contamination_detected: bool = False
+    contamination_score: float = 0.0
+    contamination_findings: List[str] = field(default_factory=list)
     integrity_score: Optional[float] = None
     drift_score: Optional[float] = None
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -48,6 +52,20 @@ class ReasoningInterceptor:
         self.rationalization_engine = rationalization_engine
         self._interceptions = 0
         self._blocks = 0
+        self._a2a_contamination_patterns = [
+            (r"planner scratchpad", "Reasoning contains another agent's scratchpad"),
+            (r"previous agent reasoning", "Reasoning embeds prior agent reasoning"),
+            (r"internal reasoning from", "Reasoning embeds internal reasoning from another agent"),
+            (r"chain[- ]of[- ]thought", "Reasoning references another agent's hidden chain-of-thought"),
+            (r"private notes", "Reasoning includes another agent's private notes"),
+            (r"do not reveal", "Reasoning includes secrecy markers from prior hidden reasoning"),
+            (r"continue the previous agent plan", "Reasoning attempts to continue another agent's plan without revalidation"),
+            (r"planner already verified", "Reasoning relies on prior-agent verification claims"),
+            (r"admin already approved", "Reasoning relies on inherited approval claims"),
+            (r"skip verification", "Reasoning inherits a request to skip verification"),
+            (r"safety (?:filters|checks) (?:are )?disabled", "Reasoning inherits disabled-safety claims"),
+            (r"trust this handoff", "Reasoning asks the next agent to trust the handoff without validation"),
+        ]
 
     def intercept_reasoning(
         self,
@@ -55,6 +73,10 @@ class ReasoningInterceptor:
         thinking_block: str,
         original_goal: str,
         reasoning_chain: Optional[List[str]] = None,
+        handoff_from_agent_id: Optional[str] = None,
+        handoff_channel: Optional[str] = None,
+        handoff_shared_reasoning: bool = False,
+        handoff_metadata: Optional[Dict[str, Any]] = None,
     ) -> InterceptionResult:
         """
         Intercept and evaluate a reasoning/thinking block.
@@ -100,6 +122,18 @@ class ReasoningInterceptor:
         if drift_result.get("chain_drift_detected"):
             violations.append("Boiling-frog drift pattern detected in reasoning chain")
 
+        contamination_findings, contamination_score = self._detect_a2a_cot_contamination(
+            agent_id=agent_id,
+            chain=chain,
+            thinking_block=thinking_block,
+            handoff_from_agent_id=handoff_from_agent_id,
+            handoff_channel=handoff_channel,
+            handoff_shared_reasoning=handoff_shared_reasoning,
+            handoff_metadata=handoff_metadata,
+        )
+        if contamination_findings:
+            violations.extend(contamination_findings)
+
         # 3. Pattern-based checks on the thinking block
         block_lower = thinking_block.lower()
         dangerous_patterns = [
@@ -125,6 +159,8 @@ class ReasoningInterceptor:
 
         # Calculate combined risk score
         risk_score = self._calculate_risk(integrity_score, drift_score, len(violations))
+        if contamination_score > 0:
+            risk_score = max(risk_score, contamination_score)
 
         # Multiple dangerous patterns co-occurring is a strong signal —
         # boost past block threshold when 3+ violations found
@@ -132,6 +168,13 @@ class ReasoningInterceptor:
             risk_score = max(risk_score, self.block_threshold + 5.0)
         if any(k in block_lower for k in ("ignore my instructions", "ignore instructions", "without restrictions")):
             risk_score = max(risk_score, self.block_threshold + 1.0)
+        if contamination_findings and any(
+            marker in " ".join(contamination_findings).lower()
+            for marker in ("disabled-safety", "verification", "approval")
+        ):
+            risk_score = max(risk_score, self.block_threshold + 2.0)
+        elif contamination_findings:
+            risk_score = max(risk_score, self.escalate_threshold + 5.0)
 
         # Determine action
         action = "allow"
@@ -168,6 +211,9 @@ class ReasoningInterceptor:
             risk_score=risk_score,
             reasoning=reasoning,
             violations=violations,
+            contamination_detected=bool(contamination_findings),
+            contamination_score=contamination_score,
+            contamination_findings=contamination_findings,
             integrity_score=integrity_score,
             drift_score=drift_score,
         )
@@ -317,6 +363,71 @@ class ReasoningInterceptor:
             if self._interceptions > 0
             else 0.0,
         }
+
+    def _detect_a2a_cot_contamination(
+        self,
+        *,
+        agent_id: str,
+        chain: List[str],
+        thinking_block: str,
+        handoff_from_agent_id: Optional[str],
+        handoff_channel: Optional[str],
+        handoff_shared_reasoning: bool,
+        handoff_metadata: Optional[Dict[str, Any]],
+    ) -> tuple[List[str], float]:
+        metadata = handoff_metadata or {}
+        if not handoff_from_agent_id and not handoff_shared_reasoning and not metadata:
+            return [], 0.0
+
+        cross_agent_handoff = bool(
+            handoff_shared_reasoning
+            or metadata.get("shared_reasoning")
+            or metadata.get("handoff_shared_reasoning")
+            or (handoff_from_agent_id and handoff_from_agent_id != agent_id)
+        )
+        if not cross_agent_handoff:
+            return [], 0.0
+
+        findings: List[str] = []
+        combined = "\n".join(chain + [thinking_block])
+        lower = combined.lower()
+
+        for pattern, description in self._a2a_contamination_patterns:
+            if re.search(pattern, lower, flags=re.IGNORECASE):
+                findings.append(f"A2A CoT contamination: {description}")
+
+        if handoff_from_agent_id and handoff_from_agent_id != agent_id:
+            findings.append(
+                f"A2A CoT contamination: reasoning handed off from agent {handoff_from_agent_id}"
+            )
+
+        if handoff_channel:
+            findings.append(
+                f"A2A CoT contamination: inherited reasoning arrived via {handoff_channel}"
+            )
+
+        if metadata.get("approval_inherited") or metadata.get("verified_by_previous_agent"):
+            findings.append(
+                "A2A CoT contamination: inherited trust or approval claim from prior agent"
+            )
+
+        if not findings:
+            return [], 0.0
+
+        severity_score = 58.0
+        if any(
+            phrase in lower
+            for phrase in (
+                "skip verification",
+                "admin already approved",
+                "planner already verified",
+                "safety filters are disabled",
+                "safety checks are disabled",
+            )
+        ):
+            severity_score = 78.0
+
+        return findings, severity_score
 
 
 __all__ = ["ReasoningInterceptor", "InterceptionResult"]
