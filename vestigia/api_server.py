@@ -512,8 +512,17 @@ def _log_access(request: Request, query_text: str, rows_accessed: int):
     user_id = _get_user_id(request)
     ip_address = request.client.host if request.client else "unknown"
     user_agent = request.headers.get("User-Agent", "")
+    tenant_id = getattr(request.state, "tenant_id", None) if MULTI_TENANT else None
     alert = _access_audit.is_suspicious(rows_accessed)
-    _access_audit.log_access(user_id, query_text, rows_accessed, ip_address, user_agent, alert_triggered=alert)
+    _access_audit.log_access(
+        user_id,
+        query_text,
+        rows_accessed,
+        ip_address,
+        user_agent,
+        alert_triggered=alert,
+        tenant_id=tenant_id,
+    )
     if alert:
         try:
             ledger = _get_ledger()
@@ -527,6 +536,7 @@ def _log_access(request: Request, query_text: str, rows_accessed: int):
                     "rows_accessed": rows_accessed,
                     "path": request.url.path,
                 },
+                tenant_id=tenant_id,
             )
         except Exception:
             logger.exception("Failed to log access alert")
@@ -713,7 +723,7 @@ async def create_event(body: EventCreateRequest, request: Request):
 
     # Record risk history for forecasting
     try:
-        _risk_history.append(anomaly_actor, event.event_id, score["risk_score"], score["signals"])
+        _risk_history.append(anomaly_actor, event.event_id, score["risk_score"], score["signals"], tenant_id=tenant_id)
         if tenant_id:
             _tenant_store.record_usage(tenant_id, events=1)
     except Exception:
@@ -1362,7 +1372,7 @@ async def execute_playbook(body: PlaybookExecuteRequest):
 async def risk_forecast(actor_id: str, horizon_hours: int = 24, request: Request = None):
     tenant_id = getattr(request.state, "tenant_id", None) if MULTI_TENANT else None
     actor_key = f"{tenant_id}:{actor_id}" if tenant_id else actor_id
-    forecast = _risk_forecaster.forecast(actor_key, horizon_hours=horizon_hours)
+    forecast = _risk_forecaster.forecast(actor_key, horizon_hours=horizon_hours, tenant_id=tenant_id)
     if _metric_risk_forecasts:
         _metric_risk_forecasts.inc()
     return RiskForecastResponse(
@@ -1408,7 +1418,10 @@ async def create_tenant_user(tenant_id: str, body: TenantUserCreateRequest, requ
         current_users = len([u for u in data.get("users", {}).values() if u.get("tenant_id") == tenant_id])
         if current_users + 1 > limits["users"]:
             raise HTTPException(status_code=403, detail="Plan limit exceeded: users")
-    user = _tenant_store.create_user(tenant_id, email=body.email, role=body.role)
+    try:
+        user = _tenant_store.create_user(tenant_id, email=body.email, role=body.role)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
     return {"status": "created", "user": user}
 
 
@@ -1420,7 +1433,10 @@ async def create_tenant_user(tenant_id: str, body: TenantUserCreateRequest, requ
 )
 async def create_api_key(tenant_id: str, body: ApiKeyCreateRequest, request: Request):
     _require_same_tenant(request, tenant_id)
-    api_key = _tenant_store.create_api_key(tenant_id, user_id=body.user_id, label=body.label)
+    try:
+        api_key = _tenant_store.create_api_key(tenant_id, user_id=body.user_id, label=body.label)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return ApiKeyCreateResponse(**api_key)
 
 

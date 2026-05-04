@@ -413,6 +413,24 @@ def verify_admin(authorization: Optional[str] = Header(None)):
         raise HTTPException(403, "Invalid admin key")
     return True
 
+
+def _tenant_scope_enforced() -> bool:
+    return os.getenv("TESSERA_ENFORCE_TENANT_SCOPE", "false").lower() in ("1", "true", "yes")
+
+
+def _require_tenant_scope(tenant_id: Optional[str]) -> str:
+    if tenant_id:
+        return tenant_id
+    if _tenant_scope_enforced():
+        raise HTTPException(400, "tenant_id is required when tenant scope enforcement is enabled")
+    return ""
+
+
+def _require_agent_tenant(agent, tenant_id: Optional[str]) -> None:
+    scoped_tenant = _require_tenant_scope(tenant_id)
+    if scoped_tenant and getattr(agent, "tenant_id", None) != scoped_tenant:
+        raise HTTPException(404, "Agent not found")
+
 # ============================================================================
 # ENDPOINTS
 # ============================================================================
@@ -429,10 +447,11 @@ def health():
     }
 
 @app.get("/agents/list")
-def list_agents():
+def list_agents(tenant_id: Optional[str] = None):
     """List all agents with full identity records."""
     try:
-        agents = registry.list_agents()
+        _require_tenant_scope(tenant_id)
+        agents = registry.list_agents(tenant_id=tenant_id)
         agent_list = [
             {
                 "agent_id": a.agent_id,
@@ -453,16 +472,19 @@ def list_agents():
             } for a in agents
         ]
         return {"agents": agent_list, "total": len(agent_list)}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, str(e))
 
 
 @app.get("/agents/{agent_id}")
-def get_agent(agent_id: str):
+def get_agent(agent_id: str, tenant_id: Optional[str] = None):
     """Get a single agent's full identity record."""
     agent = registry.get_agent(agent_id)
     if not agent:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
+    _require_agent_tenant(agent, tenant_id)
     return {
         "agent_id": agent.agent_id,
         "owner": agent.owner,
@@ -584,6 +606,7 @@ class AgentUpdateRequest(BaseModel):
     reason: Optional[str] = None
     allowed_tools: Optional[list] = None
     owner: Optional[str] = None
+    tenant_id: Optional[str] = None
     risk_threshold: Optional[int] = None
     max_token_ttl: Optional[int] = None
     metadata: Optional[dict] = None
@@ -610,6 +633,7 @@ def update_agent(agent_id: str, req: AgentUpdateRequest):
     agent = registry.get_agent(agent_id)
     if not agent:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
+    _require_agent_tenant(agent, req.tenant_id)
 
     if req.status is not None:
         registry.update_agent_status(agent_id, req.status, req.reason)
@@ -617,6 +641,8 @@ def update_agent(agent_id: str, req: AgentUpdateRequest):
         agent.allowed_tools = list(req.allowed_tools)
     if req.owner is not None:
         agent.owner = req.owner
+    if req.tenant_id is not None:
+        agent.tenant_id = req.tenant_id
     if req.risk_threshold is not None:
         agent.risk_threshold = req.risk_threshold
     if req.max_token_ttl is not None:
@@ -648,8 +674,12 @@ def update_agent(agent_id: str, req: AgentUpdateRequest):
 
 
 @app.delete("/agents/{agent_id}")
-def delete_agent(agent_id: str):
+def delete_agent(agent_id: str, tenant_id: Optional[str] = None):
     """Remove an agent from the registry."""
+    agent = registry.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    _require_agent_tenant(agent, tenant_id)
     if not registry.delete_agent(agent_id):
         raise HTTPException(404, f"Agent '{agent_id}' not found")
 
@@ -696,7 +726,11 @@ def prune_audit(req: AuditPruneRequest, authorization: Optional[str] = Header(No
 
 
 @app.get("/agents/{agent_id}/keys")
-def list_agent_keys(agent_id: str):
+def list_agent_keys(agent_id: str, tenant_id: Optional[str] = None):
+    agent = registry.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    _require_agent_tenant(agent, tenant_id)
     keys = registry.list_agent_keys(agent_id)
     if not keys:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
@@ -704,7 +738,11 @@ def list_agent_keys(agent_id: str):
 
 
 @app.post("/agents/{agent_id}/keys/rotate")
-def rotate_agent_key(agent_id: str):
+def rotate_agent_key(agent_id: str, tenant_id: Optional[str] = None):
+    agent = registry.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    _require_agent_tenant(agent, tenant_id)
     key_record = registry.rotate_agent_key(agent_id)
     if not key_record:
         raise HTTPException(404, f"Agent '{agent_id}' not found")
@@ -722,7 +760,11 @@ def rotate_agent_key(agent_id: str):
 
 
 @app.post("/agents/{agent_id}/keys/revoke")
-def revoke_agent_key(agent_id: str, req: KeyRevokeRequest):
+def revoke_agent_key(agent_id: str, req: KeyRevokeRequest, tenant_id: Optional[str] = None):
+    agent = registry.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(404, f"Agent '{agent_id}' not found")
+    _require_agent_tenant(agent, tenant_id)
     ok = registry.revoke_agent_key(agent_id, req.key_id, req.reason)
     if not ok:
         raise HTTPException(404, f"Agent '{agent_id}' or key not found")
