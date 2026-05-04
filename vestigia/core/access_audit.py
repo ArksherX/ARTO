@@ -22,7 +22,15 @@ class AccessAuditLogger:
         if not path_obj.is_absolute():
             path_obj = Path(__file__).resolve().parents[1] / path_obj
         self.fallback_path = path_obj
+        self.tenant_scoped = os.getenv("VESTIGIA_TENANT_SCOPED_STORAGE", "false").lower() in ("1", "true", "yes")
         self.fallback_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _path_for_tenant(self, tenant_id: Optional[str]) -> Path:
+        if not self.tenant_scoped or not tenant_id:
+            return self.fallback_path
+        safe = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "-" for ch in str(tenant_id))
+        safe = safe or "default"
+        return self.fallback_path.parent / safe / self.fallback_path.name
 
     def log_access(
         self,
@@ -32,6 +40,7 @@ class AccessAuditLogger:
         ip_address: str,
         user_agent: str,
         alert_triggered: bool = False,
+        tenant_id: Optional[str] = None,
     ):
         if self.dsn:
             try:
@@ -66,8 +75,11 @@ class AccessAuditLogger:
             "ip_address": ip_address,
             "user_agent": user_agent,
             "alert_triggered": alert_triggered,
+            "tenant_id": tenant_id,
         }
-        with open(self.fallback_path, "a", encoding="utf-8") as f:
+        target = self._path_for_tenant(tenant_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with open(target, "a", encoding="utf-8") as f:
             f.write(json.dumps(entry) + "\n")
 
     @staticmethod
