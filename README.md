@@ -1,4 +1,4 @@
-# Sovereign Security Suite
+# ARTO Security Suite
 
 Local-first security suite for agentic AI systems, composed of:
 - **Tessera** — identity & access control (JWT/DPoP, revocation, RBAC/SSO)
