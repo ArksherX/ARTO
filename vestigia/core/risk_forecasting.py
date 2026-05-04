@@ -18,28 +18,44 @@ class RiskHistoryStore:
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.dsn = os.getenv("VESTIGIA_DB_DSN")
-        if not self.path.exists():
+        self.tenant_scoped = os.getenv("VESTIGIA_TENANT_SCOPED_STORAGE", "false").lower() in ("1", "true", "yes")
+        if not self.path.exists() and not self.tenant_scoped:
             self.path.write_text(json.dumps({"history": []}, indent=2))
 
-    def append(self, actor_id: str, event_id: Optional[str], risk_score: float, signals: List[str]):
+    def _path_for_tenant(self, tenant_id: Optional[str]) -> Path:
+        if not self.tenant_scoped or not tenant_id:
+            return self.path
+        safe = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "-" for ch in str(tenant_id))
+        safe = safe or "default"
+        return self.path.parent / "tenants" / safe / self.path.name
+
+    def append(self, actor_id: str, event_id: Optional[str], risk_score: float, signals: List[str], tenant_id: Optional[str] = None):
         if self.dsn:
             self._append_db(actor_id, event_id, risk_score, signals)
             return
-        data = json.loads(self.path.read_text())
+        target = self._path_for_tenant(tenant_id)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if not target.exists():
+            target.write_text(json.dumps({"history": []}, indent=2))
+        data = json.loads(target.read_text())
         data["history"].append({
             "actor_id": actor_id,
             "event_id": event_id,
             "risk_score": risk_score,
             "signals": signals,
-            "recorded_at": datetime.now(UTC).isoformat()
+            "recorded_at": datetime.now(UTC).isoformat(),
+            "tenant_id": tenant_id,
         })
-        self.path.write_text(json.dumps(data, indent=2))
+        target.write_text(json.dumps(data, indent=2))
 
-    def query(self, actor_id: str, days: int = 30) -> List[Dict[str, Any]]:
+    def query(self, actor_id: str, days: int = 30, tenant_id: Optional[str] = None) -> List[Dict[str, Any]]:
         since = datetime.now(UTC) - timedelta(days=days)
         if self.dsn:
             return self._query_db(actor_id, since)
-        data = json.loads(self.path.read_text())
+        target = self._path_for_tenant(tenant_id)
+        if not target.exists():
+            return []
+        data = json.loads(target.read_text())
         results = []
         for entry in data.get("history", []):
             if entry.get("actor_id") != actor_id:
@@ -100,8 +116,8 @@ class RiskForecaster:
     def __init__(self, store: Optional[RiskHistoryStore] = None):
         self.store = store or RiskHistoryStore()
 
-    def forecast(self, actor_id: str, horizon_hours: int = 24) -> Dict[str, Any]:
-        history = self.store.query(actor_id, days=30)
+    def forecast(self, actor_id: str, horizon_hours: int = 24, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+        history = self.store.query(actor_id, days=30, tenant_id=tenant_id)
         if len(history) < 3:
             return {
                 "actor_id": actor_id,

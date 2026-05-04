@@ -46,14 +46,53 @@ class TesseraRegistry:
         self.root_key = load_or_create_root_key(self.root_key_path)
         self._load_registry()
 
+    def _tenant_storage_enabled(self) -> bool:
+        return os.getenv("TESSERA_TENANT_SCOPED_REGISTRY", "false").lower() in ("1", "true", "yes")
+
+    def _registry_base_dir(self) -> Path:
+        return Path(self.registry_path).resolve().parent
+
+    def _tenant_registry_root(self) -> Path:
+        raw = os.getenv("TESSERA_TENANT_REGISTRY_ROOT")
+        if raw:
+            return Path(raw)
+        return self._registry_base_dir() / "tenants"
+
+    def _tenant_registry_path(self, tenant_id: str) -> Path:
+        safe = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "-" for ch in str(tenant_id or "default"))
+        safe = safe or "default"
+        return self._tenant_registry_root() / safe / "tessera_registry.json"
+
+    def _iter_tenant_registry_paths(self) -> List[Path]:
+        root = self._tenant_registry_root()
+        if not root.exists():
+            return []
+        paths: List[Path] = []
+        for child in root.iterdir():
+            if child.is_dir():
+                candidate = child / "tessera_registry.json"
+                if candidate.exists():
+                    paths.append(candidate)
+        return sorted(paths)
+
     def _load_registry(self):
-        if not os.path.exists(self.registry_path):
-            self._create_default_registry()
-            
-        with open(self.registry_path, 'r') as f:
-            data = json.load(f)
+        self.agents.clear()
+        tenant_paths = self._iter_tenant_registry_paths() if self._tenant_storage_enabled() else []
+        if tenant_paths:
+            for path in tenant_paths:
+                with open(path, 'r') as f:
+                    data = json.load(f)
+                for agent_id, config in data.items():
+                    valid_fields = {k: v for k, v in config.items() if k in AgentIdentity.__annotations__}
+                    self.agents[agent_id] = AgentIdentity(**valid_fields)
+        else:
+            if self._tenant_storage_enabled():
+                return
+            if not os.path.exists(self.registry_path):
+                self._create_default_registry()
+            with open(self.registry_path, 'r') as f:
+                data = json.load(f)
             for agent_id, config in data.items():
-                # Filter config to only include fields defined in AgentIdentity dataclass
                 valid_fields = {k: v for k, v in config.items() if k in AgentIdentity.__annotations__}
                 self.agents[agent_id] = AgentIdentity(**valid_fields)
         # Ensure keys exist for all loaded agents
@@ -86,15 +125,17 @@ class TesseraRegistry:
     def get_agent(self, agent_id: str) -> Optional[AgentIdentity]:
         return self.agents.get(agent_id)
 
-    def list_agents(self, status: str = None) -> List[AgentIdentity]:
+    def list_agents(self, status: str = None, tenant_id: Optional[str] = None) -> List[AgentIdentity]:
+        agents = list(self.agents.values())
+        if tenant_id:
+            agents = [a for a in agents if a.tenant_id == tenant_id]
         if status:
-            return [a for a in self.agents.values() if a.status == status]
-        return list(self.agents.values())
+            agents = [a for a in agents if a.status == status]
+        return agents
 
     def _save_registry(self):
         """Persist the in-memory registry to disk."""
-        data = {}
-        for agent_id, agent in self.agents.items():
+        def _entry_for(agent: AgentIdentity) -> Dict[str, Any]:
             entry = {
                 "agent_id": agent.agent_id,
                 "owner": agent.owner,
@@ -118,7 +159,20 @@ class TesseraRegistry:
                 entry["status_reason"] = agent.status_reason
             if agent.last_updated:
                 entry["last_updated"] = agent.last_updated
-            data[agent_id] = entry
+            return entry
+
+        if self._tenant_storage_enabled():
+            grouped: Dict[str, Dict[str, Any]] = {}
+            for agent_id, agent in self.agents.items():
+                grouped.setdefault(agent.tenant_id or "default", {})[agent_id] = _entry_for(agent)
+            for tenant_id, data in grouped.items():
+                path = self._tenant_registry_path(tenant_id)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with open(path, 'w') as f:
+                    json.dump(data, f, indent=4)
+            return
+
+        data = {agent_id: _entry_for(agent) for agent_id, agent in self.agents.items()}
         with open(self.registry_path, 'w') as f:
             json.dump(data, f, indent=4)
 
