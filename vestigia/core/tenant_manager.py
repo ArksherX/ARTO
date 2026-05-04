@@ -88,7 +88,13 @@ class TenantStore:
         data = self._load()
         return data.get("tenants", {}).get(tenant_id)
 
+    def get_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+        data = self._load()
+        return data.get("users", {}).get(user_id)
+
     def create_user(self, tenant_id: str, email: str, role: str = "admin") -> Dict[str, Any]:
+        if not self.get_tenant(tenant_id):
+            raise ValueError("tenant not found")
         if role not in ROLE_PERMISSIONS:
             role = "viewer"
         user_id = f"u_{secrets.token_hex(8)}"
@@ -106,6 +112,12 @@ class TenantStore:
         return user
 
     def create_api_key(self, tenant_id: str, user_id: str, label: str = "default") -> Dict[str, Any]:
+        tenant = self.get_tenant(tenant_id)
+        if not tenant:
+            raise ValueError("tenant not found")
+        user = self.get_user(user_id)
+        if not user or user.get("tenant_id") != tenant_id or user.get("status") != "active":
+            raise ValueError("user does not belong to tenant")
         raw = f"vk_{secrets.token_urlsafe(32)}"
         key_id = f"k_{secrets.token_hex(8)}"
         record = {

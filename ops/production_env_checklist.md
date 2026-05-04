@@ -12,13 +12,19 @@ export SUITE_STRICT_MODE=true
 
 export TESSERA_SECRET_KEY='<64+ byte secret>'
 export TESSERA_ADMIN_KEY='tessera-admin-<strong-random-value>'
+export TESSERA_TENANT_SCOPED_REGISTRY=true
+export TESSERA_ENFORCE_TENANT_SCOPE=true
 
 export VERITYFLUX_API_KEY='vf_admin_<strong-random-value>'
+export VERITYFLUX_ALLOWED_ORIGINS='https://console.example.com'
 export VERITYFLUX_MCP_TOOL_SECRET='<strong-random-value>'
 export VERITYFLUX_MANIFEST_KEY='<strong-random-value>'
+export VERITYFLUX_TENANT_SCOPED_STORAGE=true
+export VERITYFLUX_TENANT_DATA_ROOT='verityflux-v2/data/tenants'
 
 export VESTIGIA_SECRET_SALT='<strong-random-value>'
 export VESTIGIA_API_KEY='<strong-random-value>'
+export VESTIGIA_TENANT_SCOPED_STORAGE=true
 ```
 
 ## Recommended Runtime Settings
@@ -43,6 +49,11 @@ export VERITYFLUX_OVERSIGHT_API_KEY='<provider-key>'
 export VERITYFLUX_SCORER_PROVIDER='openai'
 export VERITYFLUX_SCORER_MODEL='gpt-4o-mini'
 export VERITYFLUX_SCORER_API_KEY='<provider-key>'
+
+export VERITYFLUX_ENABLE_JWT=true
+export VERITYFLUX_JWT_SECRET='<strong-random-value>'
+export VERITYFLUX_JWT_ISSUER='verityflux'
+export VERITYFLUX_JWT_AUDIENCE='verityflux-api'
 
 export TESSERA_TLS_CERTFILE='/path/to/cert.pem'
 export TESSERA_TLS_KEYFILE='/path/to/key.pem'
@@ -75,12 +86,21 @@ Strict preflight now checks:
 - `TESSERA_SECRET_KEY`
 - `TESSERA_ADMIN_KEY`
 - `VERITYFLUX_API_KEY`
+- `VERITYFLUX_ALLOWED_ORIGINS`
 - `VERITYFLUX_MCP_TOOL_SECRET`
 - `VERITYFLUX_MANIFEST_KEY`
+- `VERITYFLUX_JWT_SECRET` when `VERITYFLUX_ENABLE_JWT=true`
 - `VESTIGIA_SECRET_SALT`
+- `VESTIGIA_PLATFORM_ADMIN_KEY` when `VESTIGIA_MULTI_TENANT=true`
 
 ## Notes
 
 - `launch_suite.sh` remains local-friendly when `SUITE_STRICT_MODE` is not enabled.
 - In strict production mode, the launcher and service startup paths fail closed on missing critical secrets.
-- VerityFlux API authentication is still prefix-based (`vf_admin_...`, `vf_...`). That is acceptable for the current stack, but if you want a stronger production posture, the next step is replacing prefix-based API-key acceptance with a real key registry or signed token validation.
+- In strict production mode, VerityFlux only accepts explicitly configured API keys and no longer accepts wildcard CORS origins.
+- VerityFlux API keys are now persisted with hashed verification and revocation metadata. The admin env key still exists as a bootstrap path.
+- VerityFlux bearer-token auth now validates real JWTs when `VERITYFLUX_ENABLE_JWT=true` and `VERITYFLUX_JWT_SECRET` is configured.
+- `VERITYFLUX_TENANT_SCOPED_STORAGE=true` stores scans, skill assessments, approvals, and API keys under tenant-specific directories rather than shared flat files.
+- `TESSERA_TENANT_SCOPED_REGISTRY=true` stores agent registry records under tenant-specific directories while preserving a unified in-memory view.
+- `TESSERA_ENFORCE_TENANT_SCOPE=true` requires tenant-scoped agent queries on Tessera admin/listing surfaces so tenant data is not returned globally by default.
+- `VESTIGIA_TENANT_SCOPED_STORAGE=true` stores access-audit and risk-history file data under tenant-specific directories when multi-tenant mode is enabled.

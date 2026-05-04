@@ -473,6 +473,57 @@ def api_update_policy(api_base_url: str, api_key: Optional[str], policy: Dict[st
         return {"ok": False, "error": str(exc)}
 
 
+def _api_request_json(
+    api_base_url: str,
+    path: str,
+    *,
+    api_key: Optional[str],
+    method: str = "GET",
+    payload: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    base = (api_base_url or "").rstrip("/")
+    if not base:
+        return {"ok": False, "error": "Missing API base URL"}
+    headers = {}
+    data = None
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(f"{base}{path}", data=data, headers=headers, method=method)
+    if api_key:
+        req.add_header("X-API-Key", api_key)
+        req.add_header("Authorization", f"Bearer {api_key}")
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            raw = resp.read().decode("utf-8")
+            parsed = json.loads(raw) if raw.strip() else {}
+        if isinstance(parsed, list):
+            return {"ok": True, "items": parsed}
+        parsed["ok"] = True
+        return parsed
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="ignore")
+        return {"ok": False, "error": f"{exc.code}: {detail or exc.reason}"}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
+def api_list_api_keys(api_base_url: str, api_key: Optional[str]) -> Dict[str, Any]:
+    return _api_request_json(api_base_url, "/api/v1/auth/api-keys", api_key=api_key)
+
+
+def api_create_api_key(api_base_url: str, api_key: Optional[str], payload: Dict[str, Any]) -> Dict[str, Any]:
+    return _api_request_json(api_base_url, "/api/v1/auth/api-keys", api_key=api_key, method="POST", payload=payload)
+
+
+def api_rotate_api_key(api_base_url: str, api_key: Optional[str], key_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    return _api_request_json(api_base_url, f"/api/v1/auth/api-keys/{key_id}/rotate", api_key=api_key, method="POST", payload=payload)
+
+
+def api_revoke_api_key(api_base_url: str, api_key: Optional[str], key_id: str) -> Dict[str, Any]:
+    return _api_request_json(api_base_url, f"/api/v1/auth/api-keys/{key_id}", api_key=api_key, method="DELETE")
+
+
 def api_get_vestigia_policy_events(api_base_url: str, api_key: Optional[str], limit: int = 50) -> Optional[Dict[str, Any]]:
     """Fetch recent policy events from Vestigia."""
     try:
@@ -3534,39 +3585,144 @@ def page_settings():
     
     with tab3:
         st.subheader("API Keys")
-        
-        # Existing keys
-        st.write("**Your API Keys:**")
-        keys = [
-            {"name": "Production API", "prefix": "vf_prod_", "created": "2026-01-15", "last_used": "2 hours ago"},
-            {"name": "Development", "prefix": "vf_dev_", "created": "2026-01-20", "last_used": "1 day ago"},
-        ]
-        
-        for key in keys:
-            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
-            with col1:
-                st.write(f"**{key['name']}**")
-                st.caption(f"Prefix: {key['prefix']}***")
-            with col2:
-                st.write(f"Created: {key['created']}")
-            with col3:
-                st.write(f"Last used: {key['last_used']}")
-            with col4:
-                if st.button("🗑️", key=f"delete_key_{key['prefix']}"):
-                    st.warning("Key revoked")
-        
+
+        key_admin = st.text_input(
+            "Admin API Key",
+            type="password",
+            value=st.session_state.vf_api_key,
+            help="Used for listing, creating, rotating, and revoking VerityFlux API keys.",
+            key="vf_api_key_admin_input",
+        )
+        st.session_state.vf_api_key = key_admin
+        api_base = st.session_state.api_base_url
+
+        if st.button("🔄 Refresh API Key Inventory", key="vf_refresh_api_keys"):
+            result = api_list_api_keys(api_base, key_admin)
+            if result.get("ok"):
+                st.session_state.api_key_inventory = result.get("items", [])
+                st.success(f"Loaded {len(st.session_state.api_key_inventory)} API keys.")
+            else:
+                st.error(f"Failed to load API keys: {result.get('error', 'unknown error')}")
+
+        keys = st.session_state.get("api_key_inventory", [])
+        if keys:
+            rows = []
+            for row in keys:
+                rows.append({
+                    "name": row.get("name"),
+                    "prefix": row.get("key_prefix"),
+                    "permissions": ", ".join(row.get("permissions", [])),
+                    "active": row.get("active", True),
+                    "created_at": row.get("created_at"),
+                    "last_used_at": row.get("last_used_at"),
+                    "expires_at": row.get("expires_at"),
+                    "revoked_at": row.get("revoked_at"),
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        else:
+            st.caption("No API key inventory loaded yet. Use Refresh to fetch live keys from the API.")
+
         st.divider()
-        
-        # Create new key
+
         st.write("**Create New API Key:**")
-        key_name = st.text_input("Key Name", placeholder="My API Key")
-        key_permissions = st.multiselect("Permissions", ["read", "write", "admin"], default=["read"])
-        key_expiry = st.number_input("Expires in (days)", value=365)
-        
-        if st.button("🔑 Generate API Key"):
-            st.success("API Key generated!")
-            st.code("vf_abc123xyz789...", language=None)
-            st.warning("⚠️ Copy this key now. You won't be able to see it again!")
+        create_col1, create_col2, create_col3 = st.columns([2, 2, 1])
+        with create_col1:
+            key_name = st.text_input("Key Name", placeholder="My API Key", key="vf_create_key_name")
+        with create_col2:
+            key_permissions = st.multiselect("Permissions", ["read", "write", "admin"], default=["read"], key="vf_create_key_permissions")
+        with create_col3:
+            key_expiry = st.number_input("Expires in (days)", min_value=1, value=365, key="vf_create_key_expiry")
+
+        if st.button("🔑 Generate API Key", key="vf_generate_api_key"):
+            result = api_create_api_key(
+                api_base,
+                key_admin,
+                {
+                    "name": key_name or "generated-key",
+                    "permissions": key_permissions or ["read"],
+                    "expires_in_days": int(key_expiry),
+                },
+            )
+            if result.get("ok"):
+                st.success("API key generated.")
+                st.code(result.get("api_key", ""), language=None)
+                st.warning("Copy this key now. It will not be returned again.")
+                refreshed = api_list_api_keys(api_base, key_admin)
+                if refreshed.get("ok"):
+                    st.session_state.api_key_inventory = refreshed.get("items", [])
+            else:
+                st.error(f"API key generation failed: {result.get('error', 'unknown error')}")
+
+        st.divider()
+
+        st.write("**Rotate or Revoke Existing Key:**")
+        selectable = {
+            f"{row.get('name', 'Unnamed')} ({row.get('key_prefix', '')}...)": row
+            for row in keys
+            if row.get("key_id")
+        }
+        selected_label = st.selectbox(
+            "Select Key",
+            ["(none)"] + list(selectable.keys()),
+            key="vf_selected_api_key",
+        )
+        selected = selectable.get(selected_label) if selected_label != "(none)" else None
+
+        if selected:
+            st.caption(
+                f"Active: {selected.get('active', True)} | "
+                f"Last used: {selected.get('last_used_at') or 'never'} | "
+                f"Expires: {selected.get('expires_at') or 'none'}"
+            )
+            rotate_name = st.text_input(
+                "Rotated Key Name",
+                value=str(selected.get("name") or "rotated-key"),
+                key="vf_rotate_key_name",
+            )
+            rotate_permissions = st.multiselect(
+                "Rotated Permissions",
+                ["read", "write", "admin"],
+                default=list(selected.get("permissions", []) or ["read"]),
+                key="vf_rotate_key_permissions",
+            )
+            rotate_expiry = st.number_input(
+                "Rotated Key Expiry (days)",
+                min_value=1,
+                value=365,
+                key="vf_rotate_key_expiry",
+            )
+            action_col1, action_col2 = st.columns(2)
+            with action_col1:
+                if st.button("🔁 Rotate Selected Key", key="vf_rotate_api_key", disabled=not selected.get("active", True)):
+                    result = api_rotate_api_key(
+                        api_base,
+                        key_admin,
+                        str(selected.get("key_id")),
+                        {
+                            "name": rotate_name,
+                            "permissions": rotate_permissions or ["read"],
+                            "expires_in_days": int(rotate_expiry),
+                        },
+                    )
+                    if result.get("ok"):
+                        st.success("API key rotated.")
+                        st.code(result.get("api_key", ""), language=None)
+                        st.warning("Copy the replacement key now. The previous key has been revoked.")
+                        refreshed = api_list_api_keys(api_base, key_admin)
+                        if refreshed.get("ok"):
+                            st.session_state.api_key_inventory = refreshed.get("items", [])
+                    else:
+                        st.error(f"Key rotation failed: {result.get('error', 'unknown error')}")
+            with action_col2:
+                if st.button("🗑️ Revoke Selected Key", key="vf_revoke_api_key"):
+                    result = api_revoke_api_key(api_base, key_admin, str(selected.get("key_id")))
+                    if result.get("ok"):
+                        st.warning("API key revoked.")
+                        refreshed = api_list_api_keys(api_base, key_admin)
+                        if refreshed.get("ok"):
+                            st.session_state.api_key_inventory = refreshed.get("items", [])
+                    else:
+                        st.error(f"Key revocation failed: {result.get('error', 'unknown error')}")
     
     with tab4:
         st.subheader("Subscription")

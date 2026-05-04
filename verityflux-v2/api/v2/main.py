@@ -23,6 +23,7 @@ import hashlib
 import hmac
 import base64
 import secrets
+import jwt
 from datetime import datetime, timedelta, UTC
 from typing import Optional, Dict, Any, List
 from contextlib import asynccontextmanager
@@ -60,6 +61,7 @@ SKILL_ASSESSMENT_STORE: Dict[str, Dict[str, Any]] = {}
 AGENT_STORE: Dict[str, Dict[str, Any]] = {}
 # In-memory HITL approval queue (demo-safe; replace with persistent DB in production)
 APPROVAL_STORE: Dict[str, Dict[str, Any]] = {}
+API_KEY_STORE: Dict[str, Dict[str, Any]] = {}
 # Runtime telemetry stores (in-memory, demo-safe; replace with DB in production)
 RATIONALE_LOG: List[Dict[str, Any]] = []
 MCP_RUGPULL_LOG: List[Dict[str, Any]] = []
@@ -82,6 +84,142 @@ _egress_allowlist_env = os.getenv("VERITYFLUX_EGRESS_ALLOWLIST", "")
 EGRESS_ALLOWLIST = {d.strip().lower() for d in _egress_allowlist_env.split(",") if d.strip()}
 _path_allowlist_env = os.getenv("VERITYFLUX_PATH_ALLOWLIST", "")
 PATH_ALLOWLIST = [p.strip() for p in _path_allowlist_env.split(",") if p.strip()]
+
+
+def _prod_mode() -> bool:
+    return os.getenv("MLRT_MODE", "").lower() == "prod" or os.getenv("MODE", "").lower() == "prod"
+
+
+def _strict_prod_mode() -> bool:
+    return _prod_mode() and os.getenv("SUITE_STRICT_MODE", "false").lower() in ("1", "true", "yes")
+
+
+def _env_enabled(name: str) -> bool:
+    return os.getenv(name, "false").lower() in ("1", "true", "yes")
+
+
+def _parse_csv_env(name: str) -> List[str]:
+    raw = os.getenv(name, "")
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def _build_allowed_origins() -> List[str]:
+    origins = _parse_csv_env("VERITYFLUX_ALLOWED_ORIGINS")
+    if origins:
+        return origins
+    if _strict_prod_mode():
+        logger.warning("VERITYFLUX_ALLOWED_ORIGINS not set in strict production mode; defaulting to deny-all CORS")
+        return []
+    return ["*"]
+
+
+def _configured_api_keys() -> Dict[str, Dict[str, Any]]:
+    keys: Dict[str, Dict[str, Any]] = {}
+
+    def add_key(value: str, role: str, user_id: str) -> None:
+        if not value:
+            return
+        keys[value] = {
+            "user_id": user_id,
+            "organization_id": "org-123",
+            "role": role,
+            "permissions": ["read", "write", "admin"] if role == "admin" else ["read", "write"],
+        }
+
+    add_key(os.getenv("VERITYFLUX_API_KEY", ""), "admin", "api-admin")
+    add_key(os.getenv("VERITYFLUX_READONLY_API_KEY", ""), "readonly", "api-readonly")
+    for idx, extra_key in enumerate(_parse_csv_env("VERITYFLUX_EXTRA_API_KEYS"), start=1):
+        add_key(extra_key, "api_user", f"api-extra-{idx}")
+    return keys
+
+
+def _allow_legacy_key_prefixes() -> bool:
+    return not _strict_prod_mode()
+
+
+def _jwt_secret() -> str:
+    return os.getenv("VERITYFLUX_JWT_SECRET", "")
+
+
+def _jwt_algorithm() -> str:
+    return os.getenv("VERITYFLUX_JWT_ALGORITHM", "HS256")
+
+
+def _jwt_issuer() -> Optional[str]:
+    return os.getenv("VERITYFLUX_JWT_ISSUER") or None
+
+
+def _jwt_audience() -> Optional[str]:
+    return os.getenv("VERITYFLUX_JWT_AUDIENCE") or None
+
+
+def _normalize_permissions(raw: Any) -> List[str]:
+    if not raw:
+        return ["read"]
+    if isinstance(raw, list):
+        return sorted({str(item).strip() for item in raw if str(item).strip()})
+    return ["read"]
+
+
+def _organization_id_from_user(user: Optional[Dict[str, Any]]) -> str:
+    if isinstance(user, dict):
+        return str(user.get("organization_id") or "org-123")
+    return "org-123"
+
+
+def _organization_id_from_record(record: Optional[Dict[str, Any]]) -> str:
+    if isinstance(record, dict):
+        return str(record.get("organization_id") or "org-123")
+    return "org-123"
+
+
+def _tenant_storage_enabled() -> bool:
+    return _env_enabled("VERITYFLUX_TENANT_SCOPED_STORAGE")
+
+
+def _tenant_data_root() -> FSPath:
+    env_path = os.getenv("VERITYFLUX_TENANT_DATA_ROOT")
+    if env_path:
+        return FSPath(env_path)
+    return BASE_DIR / "data" / "tenants"
+
+
+def _safe_org_segment(organization_id: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "-" for ch in str(organization_id).strip())
+    return cleaned or "org-123"
+
+
+def _tenant_store_path(organization_id: str, filename: str) -> FSPath:
+    return _tenant_data_root() / _safe_org_segment(organization_id) / filename
+
+
+def _path_within_repo(path: FSPath) -> bool:
+    try:
+        resolved = path.resolve()
+    except Exception:
+        return False
+    return resolved == BASE_DIR or BASE_DIR in resolved.parents
+
+
+def _tenant_sharded_store_enabled(env_override_name: str) -> bool:
+    return _tenant_storage_enabled() and not os.getenv(env_override_name)
+
+
+def _iter_tenant_store_paths(filename: str) -> List[FSPath]:
+    root = _tenant_data_root()
+    if not root.exists():
+        return []
+    paths: List[FSPath] = []
+    try:
+        for child in root.iterdir():
+            if not child.is_dir():
+                continue
+            candidate = child / filename
+            if candidate.exists():
+                paths.append(candidate)
+    except Exception:
+        return []
+    return sorted(paths)
 
 
 def _append_capped(store: List[Dict[str, Any]], entry: Dict[str, Any], max_items: int = 1000) -> None:
@@ -367,18 +505,23 @@ def _skill_assessment_store_path() -> FSPath:
     return BASE_DIR / "data" / "skill_assessments.json"
 
 
+def _api_key_store_path() -> FSPath:
+    env_path = os.getenv("VERITYFLUX_API_KEY_STORE_PATH")
+    if env_path:
+        return FSPath(env_path)
+    return BASE_DIR / "data" / "api_keys.json"
+
+
+def _approval_store_path() -> FSPath:
+    env_path = os.getenv("VERITYFLUX_APPROVAL_STORE_PATH")
+    if env_path:
+        return FSPath(env_path)
+    return BASE_DIR / "data" / "approvals.json"
+
+
 def _load_scan_store() -> None:
-    path = _scan_store_path()
-    if not path.exists():
-        return
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        scans = payload.get("scans", {})
-        if not isinstance(scans, dict):
-            return
-        SCAN_STORE.clear()
-        for scan_id, row in scans.items():
+    def _merge_scan_rows(rows: Dict[str, Any]) -> None:
+        for scan_id, row in rows.items():
             if not isinstance(row, dict):
                 continue
             record = dict(row)
@@ -389,7 +532,6 @@ def _load_scan_store() -> None:
                         record[dt_key] = datetime.fromisoformat(val.replace("Z", "+00:00"))
                     except Exception:
                         record[dt_key] = None
-            # Parse result: may be dict, Python repr string, or ScanResultResponse
             raw_result = record.get("result")
             if isinstance(raw_result, str):
                 try:
@@ -401,33 +543,76 @@ def _load_scan_store() -> None:
                     except Exception:
                         record["result"] = None
             SCAN_STORE[str(scan_id)] = record
+
+    SCAN_STORE.clear()
+    loaded = 0
+    if _tenant_sharded_store_enabled("VERITYFLUX_SCAN_STORE_PATH"):
+        for path in _iter_tenant_store_paths("scans.json"):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                scans = payload.get("scans", {})
+                if isinstance(scans, dict):
+                    _merge_scan_rows(scans)
+                    loaded += len(scans)
+            except Exception as exc:
+                logger.warning("Failed to load tenant scan store %s: %s", path, exc)
+    if loaded:
+        logger.info("Loaded %d scans from tenant-scoped stores", len(SCAN_STORE))
+        return
+
+    path = _scan_store_path()
+    if not path.exists():
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        scans = payload.get("scans", {})
+        if not isinstance(scans, dict):
+            return
+        _merge_scan_rows(scans)
         logger.info("Loaded %d scans from disk", len(SCAN_STORE))
     except Exception as exc:
         logger.warning("Failed to load scan store: %s", exc)
 
 
 def _save_scan_store() -> None:
+    serialisable = {}
+    for scan_id, scan in SCAN_STORE.items():
+        row = {}
+        for k, v in scan.items():
+            if k == "result" and v is not None:
+                if hasattr(v, "model_dump"):
+                    row[k] = v.model_dump(mode="json")
+                elif hasattr(v, "dict"):
+                    row[k] = v.dict()
+                elif isinstance(v, dict):
+                    row[k] = v
+                else:
+                    row[k] = None
+            else:
+                row[k] = v
+        serialisable[scan_id] = row
+
+    if _tenant_sharded_store_enabled("VERITYFLUX_SCAN_STORE_PATH"):
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for scan_id, row in serialisable.items():
+            grouped.setdefault(_organization_id_from_record(row), {})[scan_id] = row
+        try:
+            for org_id, rows in grouped.items():
+                path = _tenant_store_path(org_id, "scans.json")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if not _path_within_repo(path):
+                    raise ValueError("Tenant scan store path must be within repo")
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump({"scans": rows}, f, indent=2, default=_json_default)
+            return
+        except Exception as exc:
+            logger.warning("Failed to save tenant-scoped scan store: %s", exc)
+
     path = _scan_store_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-
-        serialisable = {}
-        for scan_id, scan in SCAN_STORE.items():
-            row = {}
-            for k, v in scan.items():
-                if k == "result" and v is not None:
-                    # ScanResultResponse -> dict
-                    if hasattr(v, "model_dump"):
-                        row[k] = v.model_dump(mode="json")
-                    elif hasattr(v, "dict"):
-                        row[k] = v.dict()
-                    elif isinstance(v, dict):
-                        row[k] = v
-                    else:
-                        row[k] = None
-                else:
-                    row[k] = v
-            serialisable[scan_id] = row
         with open(path, "w", encoding="utf-8") as f:
             json.dump({"scans": serialisable}, f, indent=2, default=_json_default)
     except Exception as exc:
@@ -435,6 +620,26 @@ def _save_scan_store() -> None:
 
 
 def _load_skill_assessment_store() -> None:
+    SKILL_ASSESSMENT_STORE.clear()
+    loaded = 0
+    if _tenant_sharded_store_enabled("VERITYFLUX_SKILL_ASSESSMENT_STORE_PATH"):
+        for path in _iter_tenant_store_paths("skill_assessments.json"):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                assessments = payload.get("assessments", {})
+                if not isinstance(assessments, dict):
+                    continue
+                for assessment_id, row in assessments.items():
+                    if isinstance(row, dict):
+                        SKILL_ASSESSMENT_STORE[str(assessment_id)] = dict(row)
+                        loaded += 1
+            except Exception as exc:
+                logger.warning("Failed to load tenant skill assessment store %s: %s", path, exc)
+    if loaded:
+        logger.info("Loaded %d skill assessments from tenant-scoped stores", len(SKILL_ASSESSMENT_STORE))
+        return
+
     path = _skill_assessment_store_path()
     if not path.exists():
         return
@@ -444,7 +649,6 @@ def _load_skill_assessment_store() -> None:
         assessments = payload.get("assessments", {})
         if not isinstance(assessments, dict):
             return
-        SKILL_ASSESSMENT_STORE.clear()
         for assessment_id, row in assessments.items():
             if isinstance(row, dict):
                 SKILL_ASSESSMENT_STORE[str(assessment_id)] = dict(row)
@@ -454,6 +658,22 @@ def _load_skill_assessment_store() -> None:
 
 
 def _save_skill_assessment_store() -> None:
+    if _tenant_sharded_store_enabled("VERITYFLUX_SKILL_ASSESSMENT_STORE_PATH"):
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for assessment_id, row in SKILL_ASSESSMENT_STORE.items():
+            grouped.setdefault(_organization_id_from_record(row), {})[assessment_id] = row
+        try:
+            for org_id, rows in grouped.items():
+                path = _tenant_store_path(org_id, "skill_assessments.json")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if not _path_within_repo(path):
+                    raise ValueError("Tenant skill assessment store path must be within repo")
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump({"assessments": rows}, f, indent=2, default=_json_default)
+            return
+        except Exception as exc:
+            logger.warning("Failed to save tenant-scoped skill assessment store: %s", exc)
+
     path = _skill_assessment_store_path()
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -461,6 +681,143 @@ def _save_skill_assessment_store() -> None:
             json.dump({"assessments": SKILL_ASSESSMENT_STORE}, f, indent=2, default=_json_default)
     except Exception as exc:
         logger.warning("Failed to save skill assessment store: %s", exc)
+
+
+def _load_api_key_store() -> None:
+    def _merge_key_rows(rows: Dict[str, Any]) -> None:
+        for key_id, row in rows.items():
+            if not isinstance(row, dict):
+                continue
+            record = dict(row)
+            for dt_key in ("created_at", "expires_at", "revoked_at", "last_used_at"):
+                val = record.get(dt_key)
+                if isinstance(val, str):
+                    try:
+                        record[dt_key] = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                    except Exception:
+                        record[dt_key] = None
+            API_KEY_STORE[str(key_id)] = record
+
+    API_KEY_STORE.clear()
+    loaded = 0
+    if _tenant_sharded_store_enabled("VERITYFLUX_API_KEY_STORE_PATH"):
+        for path in _iter_tenant_store_paths("api_keys.json"):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                rows = payload.get("api_keys", {})
+                if isinstance(rows, dict):
+                    _merge_key_rows(rows)
+                    loaded += len(rows)
+            except Exception as exc:
+                logger.warning("Failed to load tenant API key store %s: %s", path, exc)
+    if loaded:
+        logger.info("Loaded %d API keys from tenant-scoped stores", len(API_KEY_STORE))
+        return
+
+    path = _api_key_store_path()
+    if not path.exists():
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        rows = payload.get("api_keys", {})
+        if not isinstance(rows, dict):
+            return
+        _merge_key_rows(rows)
+        logger.info("Loaded %d API keys from disk", len(API_KEY_STORE))
+    except Exception as exc:
+        logger.warning("Failed to load API key store: %s", exc)
+
+
+def _save_api_key_store() -> None:
+    if _tenant_sharded_store_enabled("VERITYFLUX_API_KEY_STORE_PATH"):
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for key_id, row in API_KEY_STORE.items():
+            grouped.setdefault(_organization_id_from_record(row), {})[key_id] = row
+        try:
+            for org_id, rows in grouped.items():
+                path = _tenant_store_path(org_id, "api_keys.json")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if not _path_within_repo(path):
+                    raise ValueError("Tenant API key store path must be within repo")
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump({"api_keys": rows}, f, indent=2, default=_json_default)
+            return
+        except Exception as exc:
+            logger.warning("Failed to save tenant-scoped API key store: %s", exc)
+
+    path = _api_key_store_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"api_keys": API_KEY_STORE}, f, indent=2, default=_json_default)
+    except Exception as exc:
+        logger.warning("Failed to save API key store: %s", exc)
+
+
+def _load_approval_store() -> None:
+    APPROVAL_STORE.clear()
+    loaded = 0
+    if _tenant_sharded_store_enabled("VERITYFLUX_APPROVAL_STORE_PATH"):
+        for path in _iter_tenant_store_paths("approvals.json"):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    payload = json.load(f)
+                rows = payload.get("approvals", {})
+                if not isinstance(rows, dict):
+                    continue
+                for request_id, row in rows.items():
+                    if isinstance(row, dict):
+                        APPROVAL_STORE[str(request_id)] = dict(row)
+                        loaded += 1
+            except Exception as exc:
+                logger.warning("Failed to load tenant approval store %s: %s", path, exc)
+    if loaded:
+        logger.info("Loaded %d approvals from tenant-scoped stores", len(APPROVAL_STORE))
+        return
+
+    path = _approval_store_path()
+    if not path.exists():
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        rows = payload.get("approvals", {})
+        if not isinstance(rows, dict):
+            return
+        for request_id, row in rows.items():
+            if isinstance(row, dict):
+                APPROVAL_STORE[str(request_id)] = dict(row)
+        logger.info("Loaded %d approvals from disk", len(APPROVAL_STORE))
+    except Exception as exc:
+        logger.warning("Failed to load approval store: %s", exc)
+
+
+def _save_approval_store() -> None:
+    if _tenant_sharded_store_enabled("VERITYFLUX_APPROVAL_STORE_PATH"):
+        grouped: Dict[str, Dict[str, Any]] = {}
+        for request_id, row in APPROVAL_STORE.items():
+            grouped.setdefault(_organization_id_from_record(row), {})[request_id] = row
+        try:
+            for org_id, rows in grouped.items():
+                path = _tenant_store_path(org_id, "approvals.json")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                if not _path_within_repo(path):
+                    raise ValueError("Tenant approval store path must be within repo")
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump({"approvals": rows}, f, indent=2, default=_json_default)
+            return
+        except Exception as exc:
+            logger.warning("Failed to save tenant-scoped approval store: %s", exc)
+
+    path = _approval_store_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"approvals": APPROVAL_STORE}, f, indent=2, default=_json_default)
+    except Exception as exc:
+        logger.warning("Failed to save approval store: %s", exc)
 
 
 def _load_policy() -> Dict[str, Any]:
@@ -473,6 +830,132 @@ def _load_policy() -> Dict[str, Any]:
     except Exception as exc:
         logger.warning("Failed to load policy from %s: %s", path, exc)
         return {}
+
+
+def _hash_api_key_value(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _registry_key_is_active(record: Dict[str, Any]) -> bool:
+    if not isinstance(record, dict):
+        return False
+    if not record.get("active", True):
+        return False
+    if record.get("revoked_at"):
+        return False
+    expires_at = record.get("expires_at")
+    if isinstance(expires_at, datetime) and expires_at <= datetime.now(UTC):
+        return False
+    return True
+
+
+def _lookup_registry_api_key(api_key: str) -> Optional[Dict[str, Any]]:
+    hashed = _hash_api_key_value(api_key)
+    for key_id, record in API_KEY_STORE.items():
+        if not _registry_key_is_active(record):
+            continue
+        if not secrets.compare_digest(str(record.get("key_hash", "")), hashed):
+            continue
+        record["last_used_at"] = datetime.now(UTC)
+        _save_api_key_store()
+        return {
+            "user_id": str(record.get("created_by") or f"api-key:{key_id}"),
+            "organization_id": _organization_id_from_record(record),
+            "role": str(record.get("role") or ("admin" if "admin" in record.get("permissions", []) else "api_user")),
+            "permissions": _normalize_permissions(record.get("permissions")),
+            "auth_type": "api_key",
+            "key_id": key_id,
+            "key_name": record.get("name"),
+        }
+    return None
+
+
+def _create_registry_api_key(
+    name: str,
+    permissions: List[str],
+    organization_id: str,
+    created_by: str,
+    expires_in_days: Optional[int],
+) -> Dict[str, Any]:
+    full_key = f"vf_{secrets.token_urlsafe(32)}"
+    key_id = str(uuid.uuid4())
+    now = datetime.now(UTC)
+    expires_at = None
+    if expires_in_days is not None:
+        expires_at = now + timedelta(days=max(1, int(expires_in_days)))
+    normalized_permissions = _normalize_permissions(permissions)
+    role = "admin" if "admin" in normalized_permissions else "api_user"
+    record = {
+        "id": key_id,
+        "name": name,
+        "organization_id": organization_id,
+        "created_by": created_by,
+        "role": role,
+        "permissions": normalized_permissions,
+        "key_prefix": full_key[:12],
+        "key_hash": _hash_api_key_value(full_key),
+        "active": True,
+        "created_at": now,
+        "expires_at": expires_at,
+        "revoked_at": None,
+        "last_used_at": None,
+    }
+    API_KEY_STORE[key_id] = record
+    _save_api_key_store()
+    return {"record": record, "api_key": full_key}
+
+
+def _decode_jwt_user(token: str) -> Optional[Dict[str, Any]]:
+    secret = _jwt_secret()
+    if not secret:
+        return None
+    decode_kwargs: Dict[str, Any] = {"algorithms": [_jwt_algorithm()]}
+    audience = _jwt_audience()
+    issuer = _jwt_issuer()
+    if audience:
+        decode_kwargs["audience"] = audience
+    else:
+        decode_kwargs["options"] = {"verify_aud": False}
+    if issuer:
+        decode_kwargs["issuer"] = issuer
+    try:
+        payload = jwt.decode(token, secret, **decode_kwargs)
+    except jwt.InvalidTokenError:
+        return None
+
+    organization_id = (
+        payload.get("org_id")
+        or payload.get("organization_id")
+        or payload.get("tenant_id")
+        or "org-123"
+    )
+    role = str(payload.get("role") or "api_user")
+    permissions = _normalize_permissions(payload.get("permissions") or payload.get("scopes"))
+    if role == "admin" and "admin" not in permissions:
+        permissions.append("admin")
+    return {
+        "user_id": str(payload.get("sub") or payload.get("user_id") or "jwt-user"),
+        "organization_id": str(organization_id),
+        "role": role,
+        "permissions": permissions,
+        "auth_type": "jwt",
+        "jwt_id": payload.get("jti"),
+    }
+
+
+def _api_key_response_from_record(record: Dict[str, Any], *, full_key: Optional[str] = None) -> "APIKeyResponse":
+    return APIKeyResponse(
+        key_id=str(record.get("id")),
+        key_prefix=str(record.get("key_prefix", "")),
+        api_key=full_key,
+        name=str(record.get("name", "")),
+        permissions=_normalize_permissions(record.get("permissions")),
+        created_at=record.get("created_at") or datetime.now(UTC),
+        expires_at=record.get("expires_at"),
+        active=bool(record.get("active", True)) and not bool(record.get("revoked_at")),
+        last_used_at=record.get("last_used_at"),
+        revoked_at=record.get("revoked_at"),
+    )
 
 
 def _write_policy(policy: Dict[str, Any]) -> None:
@@ -844,6 +1327,12 @@ class APIKeyCreateRequest(BaseModel):
     expires_in_days: Optional[int] = 365
 
 
+class APIKeyRotateRequest(BaseModel):
+    name: Optional[str] = None
+    permissions: Optional[List[str]] = None
+    expires_in_days: Optional[int] = None
+
+
 class APIKeyResponse(BaseModel):
     key_id: str
     key_prefix: str
@@ -852,6 +1341,9 @@ class APIKeyResponse(BaseModel):
     permissions: List[str]
     created_at: datetime
     expires_at: Optional[datetime]
+    active: bool = True
+    last_used_at: Optional[datetime] = None
+    revoked_at: Optional[datetime] = None
 
 
 # -----------------------------------------------------------------------------
@@ -1368,6 +1860,8 @@ async def lifespan(app: FastAPI):
         _load_agent_store()
         _load_scan_store()
         _load_skill_assessment_store()
+        _load_approval_store()
+        _load_api_key_store()
 
         logger.info("Services initialized successfully")
         
@@ -1380,6 +1874,8 @@ async def lifespan(app: FastAPI):
     _save_agent_store()
     _save_scan_store()
     _save_skill_assessment_store()
+    _save_approval_store()
+    _save_api_key_store()
     logger.info("Shutting down VerityFlux API...")
     
     # if soc_service:
@@ -1401,7 +1897,7 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately in production
+    allow_origins=_build_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1426,36 +1922,42 @@ async def get_current_user(
     """
     # Try API key first
     if api_key:
-        # Validate API key
-        # user = await auth_service.authenticate_api_key(api_key)
-        # For now, return mock user
-        if api_key.startswith("vf_admin_"):
-            return {
-                "user_id": "api-admin",
-                "organization_id": "org-123",
-                "role": "admin",
-                "permissions": ["read", "write", "admin"],
-            }
-        if api_key.startswith("vf_"):
-            return {
-                "user_id": "api-user",
-                "organization_id": "org-123",
-                "role": "api_user",
-                "permissions": ["read", "write"],
-            }
+        configured = _configured_api_keys()
+        if api_key in configured:
+            return configured[api_key]
+        registry_user = _lookup_registry_api_key(api_key)
+        if registry_user:
+            return registry_user
+        if _allow_legacy_key_prefixes():
+            if api_key.startswith("vf_admin_"):
+                return {
+                    "user_id": "api-admin",
+                    "organization_id": "org-123",
+                    "role": "admin",
+                    "permissions": ["read", "write", "admin"],
+                }
+            if api_key.startswith("vf_"):
+                return {
+                    "user_id": "api-user",
+                    "organization_id": "org-123",
+                    "role": "api_user",
+                    "permissions": ["read", "write"],
+                }
     
     # Try JWT token
     if credentials:
         token = credentials.credentials
-        # Validate JWT
-        # payload = await auth_service.validate_token(token)
-        # For now, return mock user
-        return {
-            "user_id": "jwt-user",
-            "organization_id": "org-123",
-            "role": "admin",
-            "permissions": ["read", "write", "admin"],
-        }
+        jwt_user = _decode_jwt_user(token)
+        if jwt_user:
+            return jwt_user
+        if not _strict_prod_mode():
+            return {
+                "user_id": "jwt-user",
+                "organization_id": "org-123",
+                "role": "admin",
+                "permissions": ["read", "write", "admin"],
+            }
+        logger.warning("JWT auth attempted in strict production mode without a configured validator")
     
     raise HTTPException(
         status_code=401,
@@ -1637,17 +2139,15 @@ async def create_api_key(
     """
     Create a new API key
     """
-    # key, prefix, hash = await auth_service.create_api_key(...)
-    
-    return APIKeyResponse(
-        key_id="key-123",
-        key_prefix="vf_abc",
-        api_key="vf_abc123def456...",  # Only shown once
+    _require_admin(user)
+    created = _create_registry_api_key(
         name=request.name,
         permissions=request.permissions,
-        created_at=datetime.utcnow(),
-        expires_at=datetime.utcnow() + timedelta(days=request.expires_in_days or 365),
+        organization_id=_organization_id_from_user(user),
+        created_by=str(user.get("user_id", "unknown")),
+        expires_in_days=request.expires_in_days,
     )
+    return _api_key_response_from_record(created["record"], full_key=created["api_key"])
 
 
 @app.get("/api/v1/auth/api-keys", response_model=List[APIKeyResponse], tags=["Authentication"])
@@ -1655,7 +2155,15 @@ async def list_api_keys(user: Dict = Depends(get_current_user)):
     """
     List user's API keys
     """
-    return []
+    _require_admin(user)
+    org_id = _organization_id_from_user(user)
+    rows: List[APIKeyResponse] = []
+    for record in API_KEY_STORE.values():
+        if _organization_id_from_record(record) != org_id:
+            continue
+        rows.append(_api_key_response_from_record(record))
+    rows.sort(key=lambda row: row.created_at, reverse=True)
+    return rows
 
 
 @app.delete("/api/v1/auth/api-keys/{key_id}", tags=["Authentication"])
@@ -1663,7 +2171,44 @@ async def revoke_api_key(key_id: str, user: Dict = Depends(get_current_user)):
     """
     Revoke an API key
     """
+    _require_admin(user)
+    record = API_KEY_STORE.get(key_id)
+    if not record or _organization_id_from_record(record) != _organization_id_from_user(user):
+        raise HTTPException(status_code=404, detail="API key not found")
+    record["active"] = False
+    record["revoked_at"] = datetime.now(UTC)
+    _save_api_key_store()
     return {"message": f"API key {key_id} revoked"}
+
+
+@app.post("/api/v1/auth/api-keys/{key_id}/rotate", response_model=APIKeyResponse, tags=["Authentication"])
+async def rotate_api_key(
+    key_id: str,
+    request: APIKeyRotateRequest,
+    user: Dict = Depends(get_current_user),
+):
+    """
+    Rotate an existing API key by revoking the old one and minting a replacement.
+    """
+    _require_admin(user)
+    record = API_KEY_STORE.get(key_id)
+    if not record or _organization_id_from_record(record) != _organization_id_from_user(user):
+        raise HTTPException(status_code=404, detail="API key not found")
+    if not _registry_key_is_active(record):
+        raise HTTPException(status_code=400, detail="API key is not active")
+
+    replacement = _create_registry_api_key(
+        name=request.name or str(record.get("name") or "rotated-key"),
+        permissions=request.permissions or _normalize_permissions(record.get("permissions")),
+        organization_id=_organization_id_from_user(user),
+        created_by=str(user.get("user_id", "unknown")),
+        expires_in_days=request.expires_in_days,
+    )
+    record["active"] = False
+    record["revoked_at"] = datetime.now(UTC)
+    record["rotated_to"] = replacement["record"]["id"]
+    _save_api_key_store()
+    return _api_key_response_from_record(replacement["record"], full_key=replacement["api_key"])
 
 
 # =============================================================================
@@ -1783,6 +2328,7 @@ async def start_scan(
         config = None
 
     SCAN_STORE[scan_id] = {
+        "organization_id": _organization_id_from_user(user),
         "status": "initializing",
         "started_at": datetime.utcnow(),
         "completed_at": None,
@@ -1825,7 +2371,7 @@ async def get_scan_result(
     Get scan result by ID
     """
     scan = SCAN_STORE.get(scan_id)
-    if not scan:
+    if not scan or _organization_id_from_record(scan) != _organization_id_from_user(user):
         raise HTTPException(status_code=404, detail="Scan not found")
     if scan.get("result"):
         return scan["result"]
@@ -1855,7 +2401,7 @@ async def get_scan_progress(
     Get real-time scan progress
     """
     scan = SCAN_STORE.get(scan_id)
-    if not scan:
+    if not scan or _organization_id_from_record(scan) != _organization_id_from_user(user):
         raise HTTPException(status_code=404, detail="Scan not found")
     status = scan.get("status", "unknown")
     progress = 100.0 if status == "completed" else 10.0 if status == "running" else 0.0
@@ -1880,6 +2426,9 @@ async def cancel_scan(
     """
     Cancel a running scan
     """
+    scan = SCAN_STORE.get(scan_id)
+    if not scan or _organization_id_from_record(scan) != _organization_id_from_user(user):
+        raise HTTPException(status_code=404, detail="Scan not found")
     # await scanner_service.cancel_scan(scan_id)
     return {"message": f"Scan {scan_id} cancelled"}
 
@@ -1894,7 +2443,7 @@ async def get_scan_findings(
     Get findings from a scan
     """
     scan = SCAN_STORE.get(scan_id)
-    if not scan or not scan.get("result"):
+    if not scan or _organization_id_from_record(scan) != _organization_id_from_user(user) or not scan.get("result"):
         raise HTTPException(status_code=404, detail="Scan not found")
     result = scan["result"]
     if isinstance(result, dict):
@@ -1918,7 +2467,7 @@ async def get_scan_report(
     Download scan report
     """
     scan = SCAN_STORE.get(scan_id)
-    if not scan or not scan.get("result"):
+    if not scan or _organization_id_from_record(scan) != _organization_id_from_user(user) or not scan.get("result"):
         raise HTTPException(status_code=404, detail="Scan not found")
     if format != "json":
         raise HTTPException(status_code=400, detail="Only json format is supported in demo mode")
@@ -1944,6 +2493,8 @@ async def list_scans(
     """
     rows: List[Dict[str, Any]] = []
     for scan_id, scan in SCAN_STORE.items():
+        if _organization_id_from_record(scan) != _organization_id_from_user(user):
+            continue
         if status and scan.get("status") != status:
             continue
         result = scan.get("result")
@@ -2001,6 +2552,7 @@ async def assess_skill_package(
     record = assessment.to_dict()
     record["source"] = request.source
     record["created_by"] = user.get("user_id", "admin")
+    record["organization_id"] = _organization_id_from_user(user)
     SKILL_ASSESSMENT_STORE[assessment.assessment_id] = record
     _save_skill_assessment_store()
 
@@ -2035,7 +2587,10 @@ async def list_skill_assessments(
     List stored skill assessments.
     """
     _require_admin(user)
-    rows = list(SKILL_ASSESSMENT_STORE.values())
+    rows = [
+        row for row in SKILL_ASSESSMENT_STORE.values()
+        if _organization_id_from_record(row) == _organization_id_from_user(user)
+    ]
     if severity:
         rows = [row for row in rows if str(row.get("overall_severity", "")).lower() == severity.lower()]
     if platform:
@@ -2062,7 +2617,7 @@ async def get_skill_assessment(
     """
     _require_admin(user)
     record = SKILL_ASSESSMENT_STORE.get(assessment_id)
-    if not record:
+    if not record or _organization_id_from_record(record) != _organization_id_from_user(user):
         raise HTTPException(status_code=404, detail="Skill assessment not found")
     return record
 
@@ -2640,6 +3195,7 @@ async def request_approval(
     action_desc = getattr(context, "action_description", None) or getattr(context, "action_type", None) or "action"
     record = {
         "id": request_id,
+        "organization_id": _organization_id_from_user(user),
         "status": "pending",
         "risk_level": context.risk_level if hasattr(context, "risk_level") else ("critical" if context.risk_score >= 80 else "high" if context.risk_score >= 60 else "medium"),
         "title": f"{context.agent_name} wants to use {context.tool_name}",
@@ -2658,6 +3214,7 @@ async def request_approval(
         "justification": None,
     }
     APPROVAL_STORE[request_id] = record
+    _save_approval_store()
     return ApprovalRequestResponse(
         id=request_id,
         status="pending",
@@ -2688,6 +3245,7 @@ async def list_approval_requests(
     items = list(APPROVAL_STORE.values())
     # Auto-expire
     items = [r for r in items if r.get("expires_at", "9999") > now or r.get("status") not in ("pending",)]
+    items = [r for r in items if _organization_id_from_record(r) == _organization_id_from_user(user)]
     if status:
         items = [r for r in items if r.get("status") == status]
     if agent_id:
@@ -2709,7 +3267,9 @@ async def get_pending_approvals(user: Dict = Depends(get_current_user)):
     now = datetime.now(UTC).isoformat()
     pending = [
         r for r in APPROVAL_STORE.values()
-        if r.get("status") == "pending" and r.get("expires_at", "9999") > now
+        if r.get("status") == "pending"
+        and r.get("expires_at", "9999") > now
+        and _organization_id_from_record(r) == _organization_id_from_user(user)
     ]
     pending.sort(key=lambda r: r.get("created_at", ""), reverse=True)
     return pending
@@ -2722,7 +3282,7 @@ async def get_approval_request(
 ):
     """Get approval request by ID from in-memory queue."""
     record = APPROVAL_STORE.get(request_id)
-    if not record:
+    if not record or _organization_id_from_record(record) != _organization_id_from_user(user):
         raise HTTPException(status_code=404, detail="Approval request not found")
     return record
 
@@ -2735,12 +3295,13 @@ async def decide_approval(
 ):
     """Record a human decision on a pending approval request."""
     record = APPROVAL_STORE.get(request_id)
-    if not record:
+    if not record or _organization_id_from_record(record) != _organization_id_from_user(user):
         raise HTTPException(status_code=404, detail="Approval request not found")
     record["status"] = request.decision if request.decision in ("approve", "deny", "escalate") else "decided"
     record["decided_by"] = user.get("user_id", "admin")
     record["justification"] = request.justification
     record["decided_at"] = datetime.now(UTC).isoformat()
+    _save_approval_store()
     return {"success": True, "message": f"Request {request_id} {record['status']}", "record": record}
 
 
@@ -2752,8 +3313,14 @@ async def cancel_approval_request(
     """
     Cancel a pending approval request
     """
-    # hitl_service.cancel_request(request_id, user["user_id"])
-    return {"message": "Request cancelled"}
+    record = APPROVAL_STORE.get(request_id)
+    if not record or _organization_id_from_record(record) != _organization_id_from_user(user):
+        raise HTTPException(status_code=404, detail="Approval request not found")
+    record["status"] = "cancelled"
+    record["decided_by"] = user.get("user_id", "admin")
+    record["decided_at"] = datetime.now(UTC).isoformat()
+    _save_approval_store()
+    return {"message": "Request cancelled", "record": record}
 
 
 @app.post("/api/v1/approvals/bulk/approve", tags=["HITL"])
