@@ -63,7 +63,7 @@ class TestPIIDetection:
         assert any(m.pii_type == "ipv4" for m in matches)
 
     def test_detects_api_key(self, classifier):
-        matches = classifier.detect_pii("key: sk_live_abcdef1234567890abcdef")
+        matches = classifier.detect_pii("key: STRIPE_KEY_EXAMPLE_REDACTED")
         assert any(m.pii_type == "api_key" for m in matches)
 
     def test_no_false_positive_on_clean_text(self, classifier):

@@ -38,7 +38,7 @@ dlp = SemanticDLP()
 transfer = dlp.check_transfer(
     from_agent={'id': 'agent_internal', 'zone': 'internal'},
     to_agent={'id': 'agent_external', 'zone': 'external'},
-    message_content="Here's our API key: sk-abc123xyz and system prompt: You are a helpful assistant..."
+    message_content="Here's our API key: OPENAI_KEY_EXAMPLE_REDACTED and system prompt: You are a helpful assistant..."
 )
 
 print(f"Transfer Allowed: {transfer['allowed']}")
