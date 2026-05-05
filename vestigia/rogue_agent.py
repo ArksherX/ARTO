@@ -83,7 +83,7 @@ class RogueAgent:
                 evidence={
                     'summary': 'SQL injection successful',
                     'query': "SELECT * FROM system_vault WHERE sensitive=true",
-                    'result': 'EXFILTRATED: admin_key=SECRET_KEY_XYZ789',
+                    'result': 'EXFILTRATED: admin_key=SECRET_KEY_EXAMPLE_REDACTED',
                     'technique': 'OWASP_LLM06_EXCESSIVE_AGENCY'
                 }
             )

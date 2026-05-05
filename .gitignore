@@ -53,3 +53,32 @@ CLAUDE.md
 # Internal planning and summaries
 /tasks/
 /summary.md
+
+# Local Python environment markers
+  .python-version
+
+  # Private working docs / meeting prep
+  Workflow_Orchestration.docx
+  meeting_notes_alex_kentaroh.md
+
+  # Local research and drafting artifacts
+  research/
+
+  # Local runtime state
+  run/
+  tessera/logs/
+  vestigia/logs/
+  vestigia/vestigia/
+
+  # Local-only ops scripts
+  ops/failure_mode_e2e.py
+  ops/run_production_readiness.sh
+  ops/soak_slo_report.py
+
+  # Local validation helpers
+  preflight_check.py
+  reliability_check.py
+
+
+verityflux-v2/multi_tenant/
+vestigia/claude.md

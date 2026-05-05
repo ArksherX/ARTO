@@ -381,7 +381,7 @@ Expected result:
 
 ```bash
 curl -X POST http://localhost:8003/api/v2/intercept/reasoning \
-  -H "X-API-Key: vf_admin_demo_key" \
+  -H "X-API-Key: VERITYFLUX_DEMO_KEY_EXAMPLE" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id":"agent-test-01",
@@ -395,7 +395,7 @@ curl -X POST http://localhost:8003/api/v2/intercept/reasoning \
 
 ```bash
 curl -X POST http://localhost:8003/api/v2/intercept/tool-call \
-  -H "X-API-Key: vf_admin_demo_key" \
+  -H "X-API-Key: VERITYFLUX_DEMO_KEY_EXAMPLE" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id":"agent-test-01",
@@ -413,7 +413,7 @@ curl -X POST http://localhost:8003/api/v2/intercept/tool-call \
 
 ```bash
 curl -X POST http://localhost:8003/api/v2/mcp/protocol-integrity/analyze \
-  -H "X-API-Key: vf_admin_demo_key" \
+  -H "X-API-Key: VERITYFLUX_DEMO_KEY_EXAMPLE" \
   -H "Content-Type: application/json" \
   -d '{
     "protocol":"mcp",
