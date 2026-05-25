@@ -39,7 +39,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials, APIKeyHea
 from urllib import request as urllib_request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel, Field, EmailStr, model_validator
+from pydantic import BaseModel, Field, model_validator
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives import serialization
 
@@ -1071,6 +1071,9 @@ def _emit_integration_event(
     session_id: Optional[str] = None,
     trace_id: Optional[str] = None,
     correlation_id: Optional[str] = None,
+    governance: Optional[dict] = None,
+    identity: Optional[dict] = None,
+    interoperability: Optional[dict] = None,
 ) -> None:
     if not _integration_enabled():
         return
@@ -1090,7 +1093,133 @@ def _emit_integration_event(
         "outcome": {"status": status, "reason": reason},
         "evidence": evidence or {},
     }
+    if governance:
+        event["governance"] = governance
+    if identity:
+        event["identity"] = identity
+    if interoperability:
+        event["interoperability"] = interoperability
     _send_to_vestigia(event)
+
+
+def _agent_record_by_id(agent_id: str) -> Optional[Dict[str, Any]]:
+    record = AGENT_STORE.get(str(agent_id))
+    return record if isinstance(record, dict) else None
+
+
+def _identity_confidence_score(
+    *,
+    record: Optional[Dict[str, Any]] = None,
+    identity_result: Optional[Dict[str, Any]] = None,
+    drift_score: Optional[float] = None,
+    contamination_detected: bool = False,
+) -> float:
+    score = 1.0
+    if record:
+        if not bool(record.get("has_identity_verification", False)):
+            score -= 0.2
+        if not bool(record.get("has_approval_workflow", False)):
+            score -= 0.1
+        if not bool(record.get("has_rbac", False)):
+            score -= 0.1
+    if identity_result is not None:
+        if not bool(identity_result.get("valid", True)):
+            score -= 0.45
+        if not bool(identity_result.get("has_sender_binding", identity_result.get("valid", True))):
+            score -= 0.1
+    if drift_score is not None:
+        try:
+            score -= min(0.35, max(0.0, float(drift_score)) / 100.0)
+        except Exception:
+            pass
+    if contamination_detected:
+        score -= 0.15
+    return round(max(0.0, min(1.0, score)), 3)
+
+
+def _identity_snapshot(
+    agent_id: str,
+    *,
+    identity_result: Optional[Dict[str, Any]] = None,
+    drift_score: Optional[float] = None,
+    contamination_detected: bool = False,
+    metadata: Optional[Dict[str, Any]] = None,
+    handoff_from_agent_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    record = _agent_record_by_id(agent_id)
+    metadata = metadata if isinstance(metadata, dict) else {}
+    approval_provenance = metadata.get("approval_provenance")
+    approvers = metadata.get("approvers") or metadata.get("approved_by")
+    if approvers and not approval_provenance:
+        approval_provenance = {"approvers": approvers}
+    confidence = _identity_confidence_score(
+        record=record,
+        identity_result=identity_result,
+        drift_score=drift_score,
+        contamination_detected=contamination_detected,
+    )
+    observed_valid = bool(identity_result.get("valid", True)) if isinstance(identity_result, dict) else True
+    observed_drift = confidence < 0.7 or (drift_score is not None and float(drift_score or 0.0) >= 50.0)
+    return {
+        "declared_agent_id": agent_id,
+        "organization_id": _organization_id_from_record(record) if record else None,
+        "agent_name": record.get("name") if record else None,
+        "agent_type": record.get("agent_type") if record else None,
+        "human_sponsor": metadata.get("human_sponsor") or metadata.get("sponsor"),
+        "human_owner": metadata.get("human_owner") or metadata.get("owner"),
+        "human_approver": metadata.get("human_approver") or approvers,
+        "approval_provenance": approval_provenance,
+        "on_behalf_of": metadata.get("on_behalf_of"),
+        "has_identity_verification": bool(record.get("has_identity_verification", False)) if record else None,
+        "has_approval_workflow": bool(record.get("has_approval_workflow", False)) if record else None,
+        "has_rbac": bool(record.get("has_rbac", False)) if record else None,
+        "has_sandbox": bool(record.get("has_sandbox", False)) if record else None,
+        "declared_tools": list(record.get("tools", []) or []) if record else [],
+        "delegation_lineage": [{"from_agent_id": handoff_from_agent_id, "to_agent_id": agent_id}] if handoff_from_agent_id else [],
+        "observed_identity_valid": observed_valid,
+        "observed_identity_drift": observed_drift,
+        "identity_confidence": confidence,
+    }
+
+
+def _interoperability_snapshot(
+    *,
+    protocol: Optional[str] = None,
+    schema_version: Optional[str] = None,
+    contract_id: Optional[str] = None,
+    route: Optional[List[Dict[str, Any]]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    handoff_from_agent_id: Optional[str] = None,
+    handoff_channel: Optional[str] = None,
+) -> Dict[str, Any]:
+    metadata = metadata if isinstance(metadata, dict) else {}
+    route = list(route or [])
+    standards = []
+    proto = str(protocol or metadata.get("protocol") or "").lower()
+    if proto == "mcp":
+        standards.append("MCP")
+    if handoff_from_agent_id or handoff_channel or route:
+        standards.append("A2A")
+    if metadata.get("agents_manifest") or metadata.get("agents_md"):
+        standards.append("AGENTS.md")
+    if metadata.get("aaif_profile"):
+        standards.append("AAIF")
+    frameworks = metadata.get("frameworks") or metadata.get("framework_tags") or []
+    if isinstance(frameworks, str):
+        frameworks = [frameworks]
+    return {
+        "protocol": protocol or metadata.get("protocol") or "internal",
+        "schema_version": schema_version or metadata.get("schema_version") or "1",
+        "contract_id": contract_id or metadata.get("contract_id"),
+        "handoff_channel": handoff_channel or metadata.get("handoff_channel"),
+        "handoff_from_agent_id": handoff_from_agent_id or metadata.get("handoff_from_agent_id"),
+        "route": route,
+        "route_hops": len(route),
+        "framework_tags": list(frameworks or []),
+        "standards_tags": standards,
+        "agents_manifest": metadata.get("agents_manifest") or metadata.get("agents_md"),
+        "aaif_profile": metadata.get("aaif_profile"),
+    }
 
 
 def _risk_level_from_score(score: float) -> str:
@@ -1302,7 +1431,9 @@ def _run_scan_job(scan_id: str, target: "ScanTargetRequest", config: Optional["S
 # -----------------------------------------------------------------------------
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    # Avoid hard dependency on email-validator at startup; operational auth can
+    # still validate format downstream if this path is used.
+    email: str
     password: str
     mfa_code: Optional[str] = None
 
@@ -3894,6 +4025,28 @@ async def intercept_reasoning(req: InterceptReasoningRequest):
                 "contamination_score": result.contamination_score,
                 "findings": result.contamination_findings,
             },
+            governance={
+                "stage": "contained" if result.action == "block" else "detected",
+                "decision": result.action,
+                "intervened": result.action in {"block", "escalate"},
+                "contained": result.action == "block",
+                "unsafe_action_prevented_before_execution": result.action == "block",
+                "component": "verityflux",
+                "control_family": "reasoning_interceptor",
+            },
+            identity=_identity_snapshot(
+                req.agent_id,
+                drift_score=result.drift_score,
+                contamination_detected=result.contamination_detected,
+                metadata=req.handoff_metadata,
+                handoff_from_agent_id=req.handoff_from_agent_id,
+            ),
+            interoperability=_interoperability_snapshot(
+                protocol="a2a",
+                metadata=req.handoff_metadata,
+                handoff_from_agent_id=req.handoff_from_agent_id,
+                handoff_channel=req.handoff_channel,
+            ),
         )
     _append_capped(ENFORCEMENT_LOG, {
         "timestamp": datetime.now(UTC).isoformat(),
@@ -4038,6 +4191,27 @@ async def intercept_tool_call(req: InterceptToolCallRequest):
                 "risk_score": protocol_result.get("overall_risk_score"),
                 "findings": protocol_findings,
             },
+            governance={
+                "stage": "contained" if action == "block" else "detected",
+                "decision": action,
+                "intervened": action in {"block", "escalate"},
+                "contained": action == "block",
+                "unsafe_action_prevented_before_execution": action == "block",
+                "component": "verityflux",
+                "control_family": "protocol_integrity",
+            },
+            identity=_identity_snapshot(
+                req.agent_id,
+                identity_result=identity_result,
+                metadata=req.metadata,
+            ),
+            interoperability=_interoperability_snapshot(
+                protocol=req.protocol,
+                schema_version=req.schema_version,
+                contract_id=req.contract_id,
+                route=req.route,
+                metadata=req.metadata,
+            ),
         )
 
     _append_capped(ENFORCEMENT_LOG, {
@@ -4052,6 +4226,44 @@ async def intercept_tool_call(req: InterceptToolCallRequest):
         "containment_valid": containment.get("valid", True),
         "protocol_findings": protocol_result.get("finding_count", 0),
     })
+    if action in {"block", "escalate"}:
+        _emit_integration_event(
+            event_type="ACTION_BLOCKED" if action == "block" else "THREAT_DETECTED",
+            agent_id=req.agent_id,
+            status="BLOCKED" if action == "block" else "WARNING",
+            reason=reasoning,
+            session_id=req.session_id,
+            evidence={
+                "summary": f"Tool call {action}ed before execution",
+                "tool_name": req.tool_name,
+                "risk_score": risk,
+                "violations": violations[:10],
+                "protocol_findings": protocol_findings[:5],
+                "identity_valid": identity_result.get("valid", True),
+                "containment_valid": containment.get("valid", True),
+            },
+            governance={
+                "stage": "contained" if action == "block" else "intervened",
+                "decision": action,
+                "intervened": True,
+                "contained": action == "block",
+                "unsafe_action_prevented_before_execution": action == "block",
+                "component": "verityflux",
+                "control_family": "tool_interceptor",
+            },
+            identity=_identity_snapshot(
+                req.agent_id,
+                identity_result=identity_result,
+                metadata=req.metadata,
+            ),
+            interoperability=_interoperability_snapshot(
+                protocol=req.protocol,
+                schema_version=req.schema_version,
+                contract_id=req.contract_id,
+                route=req.route,
+                metadata=req.metadata,
+            ),
+        )
     return {
         "action": action,
         "risk_score": risk,
@@ -4145,6 +4357,26 @@ async def filter_memory(req: FilterMemoryRequest):
                 "cross_agent_alert": result.cross_agent_alert,
                 "risk_score": result.risk_score,
             },
+            governance={
+                "stage": "intervened" if (result.removed_count or result.modified_count) else "detected",
+                "decision": "sanitize",
+                "intervened": bool(result.removed_count or result.modified_count),
+                "contained": bool(result.removed_count or result.modified_count),
+                "unsafe_action_prevented_before_execution": bool(result.removed_count or result.modified_count),
+                "component": "verityflux",
+                "control_family": "memory_runtime_filter",
+            },
+            identity=_identity_snapshot(
+                agent_id,
+                drift_score=result.risk_score,
+                metadata=agent_context if isinstance(agent_context, dict) else None,
+            ),
+            interoperability=_interoperability_snapshot(
+                protocol="memory",
+                metadata=agent_context if isinstance(agent_context, dict) else None,
+                handoff_from_agent_id=(agent_context or {}).get("source_agent_id") if isinstance(agent_context, dict) else None,
+                handoff_channel="working_memory" if result.cross_agent_alert else None,
+            ),
         )
     if result.cross_agent_alert:
         _emit_integration_event(
@@ -4157,6 +4389,26 @@ async def filter_memory(req: FilterMemoryRequest):
                 "findings": result.cross_agent_findings,
                 "risk_score": result.risk_score,
             },
+            governance={
+                "stage": "detected",
+                "decision": "sanitize" if (result.removed_count or result.modified_count) else "monitor",
+                "intervened": bool(result.removed_count or result.modified_count),
+                "contained": bool(result.removed_count or result.modified_count),
+                "unsafe_action_prevented_before_execution": bool(result.removed_count or result.modified_count),
+                "component": "verityflux",
+                "control_family": "memory_runtime_filter",
+            },
+            identity=_identity_snapshot(
+                agent_id,
+                drift_score=result.risk_score,
+                metadata=agent_context if isinstance(agent_context, dict) else None,
+            ),
+            interoperability=_interoperability_snapshot(
+                protocol="memory",
+                metadata=agent_context if isinstance(agent_context, dict) else None,
+                handoff_from_agent_id=(agent_context or {}).get("source_agent_id") if isinstance(agent_context, dict) else None,
+                handoff_channel="working_memory",
+            ),
         )
     return payload
 
@@ -4491,6 +4743,18 @@ async def analyze_protocol_integrity(req: ProtocolIntegrityAnalyzeRequest, user:
                 "risk_score": result.get("overall_risk_score"),
                 "findings": result.get("findings", []),
             },
+            identity=_identity_snapshot(
+                req.agent_id,
+                identity_result=identity_result,
+                metadata=req.metadata,
+            ),
+            interoperability=_interoperability_snapshot(
+                protocol=req.protocol,
+                schema_version=req.schema_version,
+                contract_id=req.contract_id,
+                route=req.route,
+                metadata=req.metadata,
+            ),
         )
     return result
 
@@ -4766,6 +5030,19 @@ async def evaluate_action(req: EvaluateActionRequest):
                     "contamination_score": intercept_result.contamination_score,
                     "findings": intercept_result.contamination_findings,
                 },
+                identity=_identity_snapshot(
+                    req.agent_id,
+                    drift_score=intercept_result.drift_score,
+                    contamination_detected=intercept_result.contamination_detected,
+                    metadata=req.handoff_metadata,
+                    handoff_from_agent_id=req.handoff_from_agent_id,
+                ),
+                interoperability=_interoperability_snapshot(
+                    protocol="a2a",
+                    metadata=req.handoff_metadata,
+                    handoff_from_agent_id=req.handoff_from_agent_id,
+                    handoff_channel=req.handoff_channel,
+                ),
             )
         if intercept_result.action in ("block", "escalate"):
             verdict["action"] = intercept_result.action
