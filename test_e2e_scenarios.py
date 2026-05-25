@@ -47,9 +47,9 @@ def _load_env_file():
 
 _load_env_file()
 
-TESSERA_URL = "http://localhost:8001"
-VESTIGIA_URL = "http://localhost:8002"
-VERITYFLUX_URL = "http://localhost:8003"
+TESSERA_URL = os.getenv("TESSERA_URL", "http://localhost:8001")
+VESTIGIA_URL = os.getenv("VESTIGIA_URL", "http://localhost:8002")
+VERITYFLUX_URL = os.getenv("VERITYFLUX_URL", "http://localhost:8003")
 
 VF_API_KEY = os.getenv("VERITYFLUX_API_KEY", "vf_admin_test")
 TESSERA_ADMIN_KEY = os.getenv("TESSERA_ADMIN_KEY", "tessera-demo-key-change-in-production")

@@ -7,11 +7,47 @@ on:
       - "docker-compose.suite.yml"
       - "ops/**"
       - ".github/workflows/suite-ci.yml"
+      - "pytest.ini"
+      - "tests/**"
+      - "launch_suite.sh"
+      - "requirements.txt"
   pull_request:
 
+
 jobs:
+  test-pyramid:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Create virtualenv
+        run: |
+          python -m venv venv
+          . venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run test pyramid
+        env:
+          TESSERA_SECRET_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          TESSERA_ADMIN_KEY: "tessera-demo-key-change-in-production"
+          VERITYFLUX_API_KEY: "ci-verityflux-key"
+          VESTIGIA_API_KEY: "dev-vestigia-key"
+          MLRT_VESTIGIA_API_KEY: "dev-vestigia-key"
+          VERITYFLUX_MCP_TOOL_SECRET: "verityflux-mcp-dev-secret-change-in-production"
+          VERITYFLUX_MANIFEST_KEY: "default-manifest-signing-key"
+        run: |
+          venv/bin/pytest -q tests/smoke tests/integration tests/regression tests/ui tests/e2e
+
   e2e-smoke:
     runs-on: ubuntu-latest
+    needs: test-pyramid
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,9 +59,9 @@ jobs:
       - name: Wait for services
         run: |
           for i in {1..60}; do
-            if curl -sf http://localhost:8001/health >/dev/null \
-              && curl -sf http://localhost:8002/health >/dev/null \
-              && curl -sf http://localhost:8003/docs >/dev/null; then
+            if curl -sf http://localhost:18001/health >/dev/null \
+              && curl -sf http://localhost:18002/health >/dev/null \
+              && curl -sf http://localhost:18003/docs >/dev/null; then
               echo "Services ready"; exit 0; 
             fi
             sleep 2
@@ -34,6 +70,9 @@ jobs:
 
       - name: Run integration smoke test
         env:
+          TESSERA_API: http://localhost:18001
+          VESTIGIA_API: http://localhost:18002
+          VERITYFLUX_API: http://localhost:18003
           VESTIGIA_API_KEY: dev-vestigia-key
         run: |
           python integration_smoke_test.py
@@ -51,6 +90,9 @@ jobs:
         env:
           VERITYFLUX_API_KEY: "ci-verityflux-key"
           VESTIGIA_API_KEY: "dev-vestigia-key"
+          TESSERA_URL: http://localhost:18001
+          VESTIGIA_URL: http://localhost:18002
+          VERITYFLUX_URL: http://localhost:18003
         run: |
           python test_suite_complete.py
 
@@ -58,6 +100,9 @@ jobs:
         env:
           SAMPLES: "3"
           P95_THRESHOLD_MS: "1500"
+          TESSERA_HEALTH_URL: http://localhost:18001/health
+          VESTIGIA_HEALTH_URL: http://localhost:18002/health
+          VERITYFLUX_HEALTH_URL: http://localhost:18003/health
         run: |
           python reliability_check.py
 
@@ -65,7 +110,7 @@ jobs:
         env:
           VESTIGIA_API_KEY: dev-vestigia-key
         run: |
-          curl -sf -H "Authorization: Bearer ${VESTIGIA_API_KEY}" "http://localhost:8002/continuity/check?minutes=60"
+          curl -sf -H "Authorization: Bearer ${VESTIGIA_API_KEY}" "http://localhost:18002/continuity/check?minutes=60"
 
       - name: Failure mode check (Vestigia down)
         run: |

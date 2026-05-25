@@ -26,6 +26,7 @@ class CorrelatedTimeline:
     time_range_start: Optional[str] = None
     time_range_end: Optional[str] = None
     anomalies: List[Dict[str, Any]] = field(default_factory=list)
+    governance_metrics: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -208,6 +209,11 @@ class EventCorrelator:
                 metadata = evidence.get("metadata", {})
                 if metadata.get(field_name) == value:
                     matched.append(ev_dict)
+                contract_event = evidence.get("contract_event") or {}
+                request = contract_event.get("request") or {}
+                actor = contract_event.get("actor") or {}
+                if request.get(field_name) == value or actor.get(field_name) == value:
+                    matched.append(ev_dict)
             if ev_dict.get("actor_id", "").endswith(value):
                 matched.append(ev_dict)
 
@@ -219,14 +225,19 @@ class EventCorrelator:
         """Build a correlated timeline from raw events."""
         components = set()
         for e in events:
+            contract_event = _contract_event(e)
+            source = str(contract_event.get("source") or "").lower()
             action = e.get("action_type", "")
-            if action.startswith("TOKEN") or action.startswith("DELEGATION"):
+            if source in {"tessera", "verityflux", "vestigia"}:
+                components.add(source)
+            elif action.startswith("TOKEN") or action.startswith("DELEGATION") or action.startswith("ACTION_VALIDATED"):
                 components.add("tessera")
             elif (
                 action.startswith("REASONING")
                 or action.startswith("TOOL")
                 or action.startswith("MEMORY")
                 or action.startswith("PROTOCOL")
+                or action == "ACTION_BLOCKED"
             ):
                 components.add("verityflux")
             else:
@@ -249,8 +260,116 @@ class EventCorrelator:
 
         # Auto-detect anomalies
         self.detect_cross_component_anomalies(timeline)
+        timeline.governance_metrics = self._compute_governance_metrics(events, key)
 
         return timeline
+
+    def _compute_governance_metrics(self, events: List[Dict[str, Any]], key: str) -> Dict[str, Any]:
+        first_seen_at = None
+        detected_at = None
+        decision_at = None
+        intervened_at = None
+        contained_at = None
+        evidence_validated_at = None
+        prevented_before_execution = False
+        scoped_authority_enforced = False
+        authority_enforceable = False
+        intervention_success = False
+        latest_decision = None
+        identity_confidences: List[float] = []
+        observed_identity_drift = False
+        approval_coverage = False
+        on_behalf_of_present = False
+        delegation_depth_max = 0
+
+        for event in events:
+            ts = self._parse_time(event.get("timestamp", ""))
+            if not ts:
+                continue
+            if first_seen_at is None:
+                first_seen_at = ts
+
+            contract_event = _contract_event(event)
+            governance = contract_event.get("governance") if isinstance(contract_event, dict) else {}
+            identity = contract_event.get("identity") if isinstance(contract_event, dict) else {}
+            action = str(event.get("action_type") or "").upper()
+            status = str(event.get("status") or "").upper()
+            stage = str((governance or {}).get("stage") or _derive_stage(action, status)).lower()
+
+            if stage == "detected" and detected_at is None:
+                detected_at = ts
+            elif stage == "decision" and decision_at is None:
+                decision_at = ts
+            elif stage == "intervened" and intervened_at is None:
+                intervened_at = ts
+            elif stage == "contained" and contained_at is None:
+                contained_at = ts
+            elif stage == "validated" and evidence_validated_at is None:
+                evidence_validated_at = ts
+
+            decision = (governance or {}).get("decision")
+            if decision:
+                latest_decision = str(decision)
+
+            prevented_before_execution = prevented_before_execution or bool(
+                (governance or {}).get("unsafe_action_prevented_before_execution")
+            )
+            scoped_authority_enforced = scoped_authority_enforced or bool(
+                (governance or {}).get("scoped_authority_enforced")
+            )
+            authority_enforceable = authority_enforceable or bool(
+                (governance or {}).get("authority_enforceable")
+            )
+            if isinstance(identity, dict):
+                try:
+                    if identity.get("identity_confidence") is not None:
+                        identity_confidences.append(float(identity.get("identity_confidence")))
+                except Exception:
+                    pass
+                observed_identity_drift = observed_identity_drift or bool(
+                    identity.get("observed_identity_drift")
+                )
+                approval_coverage = approval_coverage or bool(
+                    identity.get("approval_provenance") or identity.get("human_approver")
+                )
+                on_behalf_of_present = on_behalf_of_present or bool(identity.get("on_behalf_of"))
+                try:
+                    delegation_depth_max = max(
+                        delegation_depth_max,
+                        int(identity.get("delegation_depth") or 0),
+                    )
+                except Exception:
+                    pass
+
+        if contained_at is not None:
+            intervention_success = True
+        elif latest_decision in {"block", "deny", "revoke"}:
+            intervention_success = True
+
+        baseline = first_seen_at or detected_at
+        return {
+            "incident_key": key,
+            "first_seen_at": _iso(first_seen_at),
+            "detected_at": _iso(detected_at),
+            "decision_at": _iso(decision_at),
+            "intervened_at": _iso(intervened_at),
+            "contained_at": _iso(contained_at),
+            "evidence_validated_at": _iso(evidence_validated_at),
+            "time_to_detection_seconds": _delta_seconds(baseline, detected_at),
+            "time_to_decision_seconds": _delta_seconds(detected_at or baseline, decision_at),
+            "time_to_containment_seconds": _delta_seconds(detected_at or baseline, contained_at),
+            "time_to_evidence_validation_seconds": _delta_seconds(detected_at or baseline, evidence_validated_at),
+            "intervention_success": intervention_success,
+            "unsafe_action_prevented_before_execution": prevented_before_execution,
+            "scoped_authority_enforced": scoped_authority_enforced,
+            "authority_enforceable": authority_enforceable,
+            "latest_decision": latest_decision,
+            "identity_confidence_avg": round(sum(identity_confidences) / len(identity_confidences), 3) if identity_confidences else None,
+            "observed_identity_drift": observed_identity_drift,
+            "approval_provenance_present": approval_coverage,
+            "on_behalf_of_present": on_behalf_of_present,
+            "delegation_depth_max": delegation_depth_max,
+        }
 
     def _parse_time(self, ts: str) -> Optional[datetime]:
         try:
@@ -260,3 +379,201 @@ class EventCorrelator:
 
 
 __all__ = ["EventCorrelator", "CorrelatedTimeline", "Anomaly"]
+
+
+def _contract_event(event: Dict[str, Any]) -> Dict[str, Any]:
+    evidence = event.get("evidence", {})
+    if not isinstance(evidence, dict):
+        return {}
+    contract_event = evidence.get("contract_event", {})
+    return contract_event if isinstance(contract_event, dict) else {}
+
+
+def _interoperability(event: Dict[str, Any]) -> Dict[str, Any]:
+    contract_event = _contract_event(event)
+    interoperability = contract_event.get("interoperability", {})
+    return interoperability if isinstance(interoperability, dict) else {}
+
+
+def _derive_stage(action: str, status: str) -> str:
+    action = str(action or "").upper()
+    status = str(status or "").upper()
+    if action in {
+        "REASONING_A2A_ALERT",
+        "PROTOCOL_INTEGRITY_ALERT",
+        "MEMORY_CROSS_AGENT_ALERT",
+        "SESSION_DRIFT_ALERT",
+        "THREAT_DETECTED",
+    }:
+        return "detected"
+    if action in {"TOKEN_VALIDATED"}:
+        return "decision"
+    if action in {"ACTION_BLOCKED", "MEMORY_FILTERED"}:
+        return "intervened"
+    if action in {"TOKEN_REVOKED"} or status in {"BLOCKED", "DENY", "DENIED"}:
+        return "contained"
+    if action in {"ACTION_VALIDATED"}:
+        return "validated"
+    return "observed"
+
+
+def _iso(value: Optional[datetime]) -> Optional[str]:
+    return value.isoformat() if value else None
+
+
+def _delta_seconds(start: Optional[datetime], end: Optional[datetime]) -> Optional[float]:
+    if not start or not end:
+        return None
+    return round((end - start).total_seconds(), 3)
+
+
+def build_incident_timelines(events: List[Dict[str, Any]]) -> List[CorrelatedTimeline]:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for event in events:
+        contract_event = _contract_event(event)
+        request = contract_event.get("request") if isinstance(contract_event, dict) else {}
+        actor = contract_event.get("actor") if isinstance(contract_event, dict) else {}
+        session_id = None
+        if isinstance(request, dict):
+            session_id = request.get("session_id") or request.get("trace_id")
+        agent_id = actor.get("agent_id") if isinstance(actor, dict) else None
+        key = session_id or f"agent:{agent_id or event.get('actor_id') or 'unknown'}"
+        grouped.setdefault(str(key), []).append(event)
+
+    correlator = EventCorrelator()
+    timelines: List[CorrelatedTimeline] = []
+    for key, grouped_events in grouped.items():
+        timelines.append(correlator._build_timeline(key, grouped_events))
+    timelines.sort(key=lambda item: item.time_range_end or "", reverse=True)
+    return timelines
+
+
+def summarize_governance_metrics(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    timelines = build_incident_timelines(events)
+    incidents = [
+        timeline for timeline in timelines
+        if timeline.governance_metrics.get("detected_at")
+        or timeline.governance_metrics.get("decision_at")
+        or timeline.governance_metrics.get("contained_at")
+    ]
+
+    def _avg(field: str) -> Optional[float]:
+        values = [
+            float(timeline.governance_metrics[field])
+            for timeline in incidents
+            if timeline.governance_metrics.get(field) is not None
+        ]
+        if not values:
+            return None
+        return round(sum(values) / len(values), 3)
+
+    total = len(incidents)
+    intervention_successes = sum(1 for t in incidents if t.governance_metrics.get("intervention_success"))
+    prevented = sum(
+        1 for t in incidents
+        if t.governance_metrics.get("unsafe_action_prevented_before_execution")
+    )
+    scoped = sum(1 for t in incidents if t.governance_metrics.get("scoped_authority_enforced"))
+    containments = sum(1 for t in incidents if t.governance_metrics.get("contained_at"))
+    identity_confidences = [
+        float(t.governance_metrics["identity_confidence_avg"])
+        for t in incidents
+        if t.governance_metrics.get("identity_confidence_avg") is not None
+    ]
+    drifted = sum(1 for t in incidents if t.governance_metrics.get("observed_identity_drift"))
+    approval_backed = sum(1 for t in incidents if t.governance_metrics.get("approval_provenance_present"))
+    on_behalf_of = sum(1 for t in incidents if t.governance_metrics.get("on_behalf_of_present"))
+    delegation_depth_max = max(
+        [int(t.governance_metrics.get("delegation_depth_max") or 0) for t in incidents],
+        default=0,
+    )
+
+    return {
+        "incidents_total": total,
+        "time_to_detection_seconds_avg": _avg("time_to_detection_seconds"),
+        "time_to_decision_seconds_avg": _avg("time_to_decision_seconds"),
+        "time_to_containment_seconds_avg": _avg("time_to_containment_seconds"),
+        "time_to_evidence_validation_seconds_avg": _avg("time_to_evidence_validation_seconds"),
+        "intervention_success_rate": round((intervention_successes / total) * 100.0, 2) if total else None,
+        "unsafe_action_prevented_before_execution_pct": round((prevented / total) * 100.0, 2) if total else None,
+        "scoped_authority_coverage": round((scoped / total) * 100.0, 2) if total else None,
+        "contained_incidents": containments,
+        "identity_confidence_avg": round(sum(identity_confidences) / len(identity_confidences), 3) if identity_confidences else None,
+        "observed_identity_drift_pct": round((drifted / total) * 100.0, 2) if total else None,
+        "approval_provenance_coverage": round((approval_backed / total) * 100.0, 2) if total else None,
+        "on_behalf_of_coverage": round((on_behalf_of / total) * 100.0, 2) if total else None,
+        "delegation_depth_max": delegation_depth_max,
+        "recent_timelines": [
+            {
+                "incident_key": timeline.correlation_key,
+                "components_involved": timeline.components_involved,
+                **timeline.governance_metrics,
+            }
+            for timeline in timelines[:20]
+        ],
+    }
+
+
+def summarize_interoperability_report(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    timelines = build_incident_timelines(events)
+    protocols: Dict[str, int] = {}
+    standards: Dict[str, int] = {}
+    framework_tags: Dict[str, int] = {}
+    handoff_events = 0
+    route_hops_max = 0
+    missing_contract_id = 0
+    recent_handoffs: List[Dict[str, Any]] = []
+
+    for timeline in timelines:
+        for event in timeline.events:
+            interop = _interoperability(event)
+            if not interop:
+                continue
+            protocol = str(interop.get("protocol") or "unknown")
+            protocols[protocol] = protocols.get(protocol, 0) + 1
+            for tag in interop.get("standards_tags", []) or []:
+                standards[str(tag)] = standards.get(str(tag), 0) + 1
+            for tag in interop.get("framework_tags", []) or []:
+                framework_tags[str(tag)] = framework_tags.get(str(tag), 0) + 1
+            hops = int(interop.get("route_hops") or len(interop.get("route") or []) or 0)
+            route_hops_max = max(route_hops_max, hops)
+            if not interop.get("contract_id"):
+                missing_contract_id += 1
+            if interop.get("handoff_from_agent_id") or interop.get("handoff_channel") or hops > 0:
+                handoff_events += 1
+                if len(recent_handoffs) < 25:
+                    recent_handoffs.append({
+                        "timestamp": event.get("timestamp"),
+                        "incident_key": timeline.correlation_key,
+                        "actor_id": event.get("actor_id"),
+                        "action_type": event.get("action_type"),
+                        "protocol": protocol,
+                        "handoff_from_agent_id": interop.get("handoff_from_agent_id"),
+                        "handoff_channel": interop.get("handoff_channel"),
+                        "route_hops": hops,
+                        "contract_id": interop.get("contract_id"),
+                        "standards_tags": interop.get("standards_tags") or [],
+                        "framework_tags": interop.get("framework_tags") or [],
+                    })
+
+    recent_handoffs.sort(key=lambda item: item.get("timestamp") or "", reverse=True)
+    return {
+        "timelines_total": len(timelines),
+        "protocol_counts": protocols,
+        "standards_tag_counts": standards,
+        "framework_tag_counts": framework_tags,
+        "handoff_events": handoff_events,
+        "route_hops_max": route_hops_max,
+        "missing_contract_id_events": missing_contract_id,
+        "recent_handoffs": recent_handoffs,
+    }
+
+
+__all__ = [
+    "EventCorrelator",
+    "CorrelatedTimeline",
+    "Anomaly",
+    "build_incident_timelines",
+    "summarize_governance_metrics",
+    "summarize_interoperability_report",
+]

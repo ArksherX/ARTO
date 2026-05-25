@@ -48,7 +48,7 @@ from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Any, Dict, List
 import uvicorn
 
 # Tessera
@@ -303,6 +303,9 @@ def _emit_integration_event(
     session_id: Optional[str] = None,
     trace_id: Optional[str] = None,
     correlation_id: Optional[str] = None,
+    governance: Optional[dict] = None,
+    identity: Optional[dict] = None,
+    interoperability: Optional[dict] = None,
 ) -> None:
     if not _integration_enabled():
         return
@@ -324,7 +327,133 @@ def _emit_integration_event(
     }
     if tool:
         event["evidence"]["tool"] = tool
+    if governance:
+        event["governance"] = governance
+    if identity:
+        event["identity"] = identity
+    if interoperability:
+        event["interoperability"] = interoperability
     _send_to_vestigia(event)
+
+
+def _identity_confidence_score(
+    *,
+    agent: Optional[Any] = None,
+    valid: Optional[bool] = None,
+    delegated_depth: int = 0,
+    signature_valid: Optional[bool] = None,
+) -> float:
+    score = 1.0
+    if agent is not None:
+        trust = getattr(agent, "trust_score", None)
+        if trust is not None:
+            try:
+                score = min(score, max(0.0, float(trust) / 100.0))
+            except Exception:
+                pass
+        if not getattr(agent, "active_key_id", None):
+            score -= 0.15
+        if str(getattr(agent, "status", "active")).lower() not in {"active", "healthy", "trusted"}:
+            score -= 0.2
+    if valid is False:
+        score -= 0.45
+    if signature_valid is False:
+        score -= 0.35
+    if delegated_depth > 0:
+        score -= min(0.2, delegated_depth * 0.05)
+    return round(max(0.0, min(1.0, score)), 3)
+
+
+def _agent_identity_snapshot(
+    agent_id: str,
+    *,
+    agent: Optional[Any] = None,
+    role: Optional[str] = None,
+    valid: Optional[bool] = None,
+    delegated: Optional[Any] = None,
+    payload: Optional[Dict[str, Any]] = None,
+    signature_valid: Optional[bool] = None,
+) -> Dict[str, Any]:
+    agent = agent or registry.get_agent(agent_id)
+    metadata = getattr(agent, "metadata", {}) if agent is not None else {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    delegation_chain_payload = []
+    delegation_depth = 0
+    on_behalf_of = metadata.get("on_behalf_of")
+    if isinstance(payload, dict):
+        chain = payload.get("delegation_chain")
+        if isinstance(chain, list):
+            delegation_chain_payload = chain
+        delegation_depth = int(payload.get("delegation_depth") or len(delegation_chain_payload) or 0)
+        on_behalf_of = on_behalf_of or payload.get("obo") or payload.get("on_behalf_of")
+    if delegated is not None:
+        delegation_chain_payload = list(getattr(delegated, "delegation_chain", []) or delegation_chain_payload)
+        delegation_depth = int(getattr(delegated, "depth", delegation_depth) or delegation_depth)
+
+    confidence = _identity_confidence_score(
+        agent=agent,
+        valid=valid,
+        delegated_depth=delegation_depth,
+        signature_valid=signature_valid,
+    )
+    drifted = valid is False or confidence < 0.7
+    return {
+        "declared_agent_id": agent_id,
+        "owner": getattr(agent, "owner", None) if agent is not None else None,
+        "tenant_id": getattr(agent, "tenant_id", None) if agent is not None else None,
+        "active_key_id": getattr(agent, "active_key_id", None) if agent is not None else None,
+        "allowed_roles": list(getattr(agent, "allowed_roles", []) or []) if agent is not None else [],
+        "allowed_delegates": list(getattr(agent, "allowed_delegates", []) or []) if agent is not None else [],
+        "trust_score": getattr(agent, "trust_score", None) if agent is not None else None,
+        "human_sponsor": metadata.get("human_sponsor") or metadata.get("sponsor"),
+        "human_owner": metadata.get("human_owner") or getattr(agent, "owner", None),
+        "human_approver": metadata.get("human_approver") or metadata.get("approver"),
+        "approval_provenance": metadata.get("approval_provenance"),
+        "on_behalf_of": on_behalf_of,
+        "delegation_lineage": delegation_chain_payload,
+        "delegation_depth": delegation_depth,
+        "role": role,
+        "declared_status": getattr(agent, "status", None) if agent is not None else None,
+        "observed_identity_valid": valid,
+        "observed_identity_drift": drifted,
+        "identity_confidence": confidence,
+    }
+
+
+def _interoperability_snapshot(
+    *,
+    protocol: Optional[str] = None,
+    schema_version: Optional[str] = None,
+    contract_id: Optional[str] = None,
+    delegation_chain: Optional[List[Dict[str, Any]]] = None,
+    handoff_channel: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    metadata = metadata if isinstance(metadata, dict) else {}
+    delegation_chain = list(delegation_chain or [])
+    standards = []
+    proto = str(protocol or metadata.get("protocol") or "").lower()
+    if proto in {"jwt", "oauth", "dpop"}:
+        standards.append("Identity")
+    if delegation_chain:
+        standards.append("A2A")
+    if metadata.get("agents_manifest") or metadata.get("agents_md"):
+        standards.append("AGENTS.md")
+    if metadata.get("aaif_profile"):
+        standards.append("AAIF")
+    return {
+        "protocol": protocol or metadata.get("protocol") or "jwt",
+        "schema_version": schema_version or metadata.get("schema_version") or "1",
+        "contract_id": contract_id or metadata.get("contract_id"),
+        "handoff_channel": handoff_channel or metadata.get("handoff_channel"),
+        "route": delegation_chain,
+        "route_hops": len(delegation_chain),
+        "framework_tags": list(metadata.get("framework_tags") or []),
+        "standards_tags": standards,
+        "agents_manifest": metadata.get("agents_manifest") or metadata.get("agents_md"),
+        "aaif_profile": metadata.get("aaif_profile"),
+    }
 
 # Initialize
 app = FastAPI(title="Tessera IAM", version="2.0")
@@ -883,6 +1012,29 @@ def request_token(req: TokenRequest, request: Request, _: bool = Header(None)):
             session_id=req.session_id or _header_value(request, "X-Session-Id"),
             trace_id=_header_value(request, "X-Trace-Id", "X-Request-Id", "X-Correlation-Id"),
             correlation_id=jti,
+            governance={
+                "stage": "authority_established",
+                "decision": "issue_token",
+                "intervened": False,
+                "contained": False,
+                "unsafe_action_prevented_before_execution": False,
+                "scoped_authority_enforced": True,
+                "authority_enforceable": True,
+                "component": "tessera",
+                "control_family": "token_issuance",
+            },
+            identity=_agent_identity_snapshot(
+                req.agent_id,
+                agent=agent,
+                role=req.role,
+                valid=True,
+            ),
+            interoperability=_interoperability_snapshot(
+                protocol="jwt",
+                schema_version="1",
+                contract_id=f"jwt:{requested_tool}",
+                metadata={"framework_tags": ["tessera", "jwt", "dpop"] if req.dpop_thumbprint else ["tessera", "jwt"]},
+            ),
         )
 
         return {
@@ -1001,6 +1153,29 @@ def validate_token(req: TokenValidate, request: Request, dpop: Optional[str] = H
             session_id=session_id or _header_value(request, "X-Session-Id"),
             trace_id=_header_value(request, "X-Trace-Id", "X-Request-Id", "X-Correlation-Id"),
             correlation_id=jti,
+            governance={
+                "stage": "decision" if valid else "contained",
+                "decision": "allow" if valid else "deny",
+                "intervened": not valid,
+                "contained": not valid,
+                "unsafe_action_prevented_before_execution": not valid,
+                "scoped_authority_enforced": True,
+                "authority_enforceable": True,
+                "component": "tessera",
+                "control_family": "token_validation",
+            },
+            identity=_agent_identity_snapshot(
+                agent_id,
+                valid=valid,
+                payload=payload if isinstance(payload, dict) else None,
+            ),
+            interoperability=_interoperability_snapshot(
+                protocol="jwt",
+                schema_version="1",
+                contract_id=f"jwt:{req.tool}",
+                delegation_chain=(payload or {}).get("delegation_chain") if isinstance(payload, dict) else None,
+                metadata={"framework_tags": ["tessera", "jwt", "dpop"] if dpop_proof else ["tessera", "jwt"]},
+            ),
         )
         
         return {
@@ -1122,6 +1297,26 @@ def revoke_token(req: TokenRevoke, _: bool = Header(None)):
             session_id="admin",
             trace_id=jti,
             correlation_id=jti,
+            governance={
+                "stage": "contained",
+                "decision": "revoke",
+                "intervened": True,
+                "contained": True,
+                "unsafe_action_prevented_before_execution": True,
+                "scoped_authority_enforced": True,
+                "authority_enforceable": True,
+                "component": "tessera",
+                "control_family": "revocation",
+            },
+            identity={
+                "declared_agent_id": "admin",
+                "human_owner": "admin",
+                "human_approver": "admin",
+                "approval_provenance": req.reason,
+                "observed_identity_valid": True,
+                "observed_identity_drift": False,
+                "identity_confidence": 1.0,
+            },
         )
         
         return {"success": True, "revoked": True, "jti": jti}
@@ -1379,6 +1574,29 @@ def access_validate(req: AccessValidate, request: Request):
         reason=out.get("tessera_reason"),
         session_id=context.get("session_id"),
         trace_id=context.get("trace_id") or _header_value(request, "X-Trace-Id", "X-Request-Id", "X-Correlation-Id"),
+        governance={
+            "stage": "validated",
+            "decision": out.get("decision", "unknown"),
+            "intervened": out.get("decision") not in ("allow", "approved", "permit", "success"),
+            "contained": out.get("decision") in ("deny", "blocked", "reject", "failure"),
+            "unsafe_action_prevented_before_execution": out.get("decision") in ("deny", "blocked", "reject", "failure"),
+            "scoped_authority_enforced": bool(out.get("signature_valid")),
+            "authority_enforceable": bool(out.get("signature_valid")),
+            "component": "tessera",
+            "control_family": "action_validation",
+        },
+        identity=_agent_identity_snapshot(
+            req.agent_id,
+            role=out.get("role"),
+            valid=bool(out.get("signature_valid")),
+            signature_valid=bool(out.get("signature_valid")),
+        ),
+        interoperability=_interoperability_snapshot(
+            protocol="signed_action",
+            schema_version="1",
+            contract_id=f"signed_action:{req.tool}",
+            metadata=context if isinstance(context, dict) else None,
+        ),
     )
     return out
 
@@ -1457,9 +1675,35 @@ def delegate_token(req: DelegateRequest):
             evidence={
                 "parent_jti": delegated.parent_jti,
                 "depth": delegated.depth,
+                "effective_scopes": list(delegated.effective_scopes),
             },
             session_id=parent_payload.get("session_id") if isinstance(parent_payload, dict) else None,
             correlation_id=delegated.parent_jti,
+            governance={
+                "stage": "authority_established",
+                "decision": "delegate",
+                "intervened": False,
+                "contained": False,
+                "unsafe_action_prevented_before_execution": False,
+                "scoped_authority_enforced": True,
+                "authority_enforceable": True,
+                "component": "tessera",
+                "control_family": "delegation",
+            },
+            identity=_agent_identity_snapshot(
+                req.sub_agent_id,
+                delegated=delegated,
+                payload=parent_payload if isinstance(parent_payload, dict) else None,
+                valid=True,
+            ),
+            interoperability=_interoperability_snapshot(
+                protocol="delegation",
+                schema_version="1",
+                contract_id=f"delegation:{delegated.parent_jti}",
+                delegation_chain=delegated.delegation_chain if isinstance(delegated.delegation_chain, list) else None,
+                handoff_channel="delegation_chain",
+                metadata={"framework_tags": ["tessera", "delegation", "a2a"]},
+            ),
         )
 
         return {

@@ -61,7 +61,10 @@ else
 fi
 
 source_venv() {
-    if [[ -f "/home/arksher/venv/bin/activate" ]]; then
+    if [[ -f "${ROOT_DIR}/venv/bin/activate" ]]; then
+        # shellcheck disable=SC1091
+        source "${ROOT_DIR}/venv/bin/activate"
+    elif [[ -f "/home/arksher/venv/bin/activate" ]]; then
         # shellcheck disable=SC1091
         source "/home/arksher/venv/bin/activate"
     elif [[ -f "$1/venv/bin/activate" ]]; then
@@ -72,12 +75,22 @@ source_venv() {
 
 resolve_bin() {
     local dir="$1" bin_name="$2"
-    if [[ -x "/home/arksher/venv/bin/${bin_name}" ]]; then
+    if [[ -x "${ROOT_DIR}/venv/bin/${bin_name}" ]]; then
+        echo "${ROOT_DIR}/venv/bin/${bin_name}"
+    elif [[ -x "/home/arksher/venv/bin/${bin_name}" ]]; then
         echo "/home/arksher/venv/bin/${bin_name}"
     elif [[ -x "${dir}/venv/bin/${bin_name}" ]]; then
         echo "${dir}/venv/bin/${bin_name}"
     else
-        command -v "${bin_name}"
+        command -v "${bin_name}" || true
+    fi
+}
+
+require_bin() {
+    local label="$1" path="$2"
+    if [[ -z "${path}" ]]; then
+        echo "❌ Missing runtime for ${label}"
+        exit 1
     fi
 }
 
@@ -114,6 +127,11 @@ TESSERA_STREAMLIT="$(resolve_bin "${TESSERA_DIR}" streamlit)"
 VESTIGIA_STREAMLIT="$(resolve_bin "${VESTIGIA_DIR}" streamlit)"
 VERITYFLUX_STREAMLIT="$(resolve_bin "${VERITYFLUX_DIR}" streamlit)"
 
+require_bin "Tessera Python" "${TESSERA_PYTHON}"
+require_bin "Vestigia Python" "${VESTIGIA_PYTHON}"
+require_bin "VerityFlux Python" "${VERITYFLUX_PYTHON}"
+require_bin "Streamlit" "${TESSERA_STREAMLIT:-${VESTIGIA_STREAMLIT:-${VERITYFLUX_STREAMLIT:-}}}"
+
 echo "Starting Tessera API..."
 start_detached "Tessera API" "${TESSERA_DIR}" "${ROOT_DIR}/logs_tessera_api.log" "${RUN_DIR}/tessera_api.pid" "${TESSERA_PYTHON}" api_server.py
 echo "Starting Vestigia API..."
@@ -122,11 +140,11 @@ echo "Starting VerityFlux API..."
 start_detached "VerityFlux API" "${VERITYFLUX_DIR}" "${ROOT_DIR}/logs_verityflux.log" "${RUN_DIR}/verityflux_api.pid" env "PYTHONPATH=${ROOT_DIR}/verityflux-v2" "${VERITYFLUX_PYTHON}" api/v2/main.py
 
 echo "Starting Tessera UI..."
-start_detached "Tessera UI" "${TESSERA_DIR}" "${ROOT_DIR}/logs_tessera_ui.log" "${RUN_DIR}/tessera_ui.pid" "${TESSERA_STREAMLIT}" run web_ui/tessera_dashboard.py --server.headless true
+start_detached "Tessera UI" "${TESSERA_DIR}" "${ROOT_DIR}/logs_tessera_ui.log" "${RUN_DIR}/tessera_ui.pid" "${TESSERA_PYTHON}" -m streamlit run web_ui/tessera_dashboard.py --server.headless true --server.port 8501
 echo "Starting Vestigia UI..."
-start_detached "Vestigia UI" "${VESTIGIA_DIR}" "${ROOT_DIR}/logs_vestigia_ui.log" "${RUN_DIR}/vestigia_ui.pid" "${VESTIGIA_STREAMLIT}" run dashboard.py --server.headless true
+start_detached "Vestigia UI" "${VESTIGIA_DIR}" "${ROOT_DIR}/logs_vestigia_ui.log" "${RUN_DIR}/vestigia_ui.pid" "${VESTIGIA_PYTHON}" -m streamlit run dashboard.py --server.headless true --server.port 8502
 echo "Starting VerityFlux UI..."
-start_detached "VerityFlux UI" "${VERITYFLUX_DIR}" "${ROOT_DIR}/logs_verityflux_ui.log" "${RUN_DIR}/verityflux_ui.pid" "${VERITYFLUX_STREAMLIT}" run ui/streamlit/app.py --server.headless true
+start_detached "VerityFlux UI" "${VERITYFLUX_DIR}" "${ROOT_DIR}/logs_verityflux_ui.log" "${RUN_DIR}/verityflux_ui.pid" "${VERITYFLUX_PYTHON}" -m streamlit run ui/streamlit/app.py --server.headless true --server.port 8503
 
 echo "Waiting for services..."
 wait_for_port "${TESSERA_PORT}" "Tessera API listening on ${TESSERA_PORT}" || exit 1

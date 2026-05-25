@@ -45,6 +45,8 @@ from core.playbook_engine import PlaybookEngine
 from core.risk_forecasting import RiskHistoryStore, RiskForecaster
 from core.tenant_manager import TenantStore, TenantContext, ROLE_PERMISSIONS, PLAN_LIMITS
 from core.ops_health import collect_health
+from core.event_correlator import summarize_governance_metrics, summarize_interoperability_report
+from core.threat_registry import load_threat_cards, summarize_threat_card_coverage
 
 try:
     from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST, REGISTRY
@@ -1179,6 +1181,59 @@ async def get_statistics(request: Request):
         rows_accessed=stats.get("total_events", 0),
     )
     return stats
+
+
+@app.get(
+    "/governance/metrics",
+    summary="Get closed-loop governance metrics",
+    dependencies=[Depends(_require_api_key), Depends(_require_permission("metrics:read"))],
+)
+async def get_governance_metrics(request: Request, limit: int = Query(500, ge=50, le=2000)):
+    """Compute detect -> decide -> contain -> validate metrics from correlated contract events."""
+    ledger = _get_ledger()
+    tenant_id = getattr(request.state, "tenant_id", None) if MULTI_TENANT else None
+    events = [event.to_dict() for event in ledger.query_events(tenant_id=tenant_id, limit=limit)]
+    _log_access(request, f"GET /governance/metrics limit={limit}", len(events))
+    return summarize_governance_metrics(events)
+
+
+@app.get(
+    "/interoperability/report",
+    summary="Get interoperability handoff report",
+    dependencies=[Depends(_require_api_key), Depends(_require_permission("metrics:read"))],
+)
+async def get_interoperability_report(request: Request, limit: int = Query(500, ge=50, le=2000)):
+    """Summarize cross-protocol handoff and contract metadata from correlated events."""
+    ledger = _get_ledger()
+    tenant_id = getattr(request.state, "tenant_id", None) if MULTI_TENANT else None
+    events = [event.to_dict() for event in ledger.query_events(tenant_id=tenant_id, limit=limit)]
+    _log_access(request, f"GET /interoperability/report limit={limit}", len(events))
+    return summarize_interoperability_report(events)
+
+
+@app.get(
+    "/threat-cards",
+    summary="List normalized threat cards",
+    dependencies=[Depends(_require_api_key), Depends(_require_permission("events:read"))],
+)
+async def list_threat_cards(request: Request):
+    cards = load_threat_cards()
+    _log_access(request, "GET /threat-cards", len(cards))
+    return {"items": cards, "total": len(cards)}
+
+
+@app.get(
+    "/threat-cards/coverage",
+    summary="Get threat-card coverage report",
+    dependencies=[Depends(_require_api_key), Depends(_require_permission("metrics:read"))],
+)
+async def get_threat_card_coverage(request: Request, limit: int = Query(500, ge=50, le=2000)):
+    ledger = _get_ledger()
+    tenant_id = getattr(request.state, "tenant_id", None) if MULTI_TENANT else None
+    events = [event.to_dict() for event in ledger.query_events(tenant_id=tenant_id, limit=limit)]
+    cards = load_threat_cards()
+    _log_access(request, f"GET /threat-cards/coverage limit={limit}", len(events))
+    return summarize_threat_card_coverage(events, cards)
 
 
 # 8. POST /webhooks/siem -- SIEM enrichment webhook -------------------------

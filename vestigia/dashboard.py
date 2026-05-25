@@ -25,6 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 # Import VestigiaLedger
 from core.ledger_engine import VestigiaLedger
+from core.event_correlator import summarize_governance_metrics, summarize_interoperability_report
+from core.threat_registry import load_threat_cards, summarize_threat_card_coverage
 from validator import VestigiaValidator
 from core.nl_query import NLQueryEngine
 from core.playbook_engine import PlaybookEngine
@@ -468,6 +470,15 @@ def format_timestamp(ts):
     base = dt.strftime("%Y-%m-%d %H:%M:%S")
     zone = dt.tzname() or ("UTC" if dt.tzinfo else "local")
     return f"{base} {zone} ({_relative_time(dt)})"
+
+
+def _fmt_seconds(value):
+    if value is None:
+        return "N/A"
+    try:
+        return f"{float(value):.2f}s"
+    except Exception:
+        return str(value)
 
 
 def _normalize_filter_dt(value):
@@ -1123,13 +1134,83 @@ def render_statistics():
         st.markdown("### Events by Actor")
         st.bar_chart(actor_counts)
     
+    governance = summarize_governance_metrics(events)
+    incidents_total = governance.get("incidents_total", 0)
+    recent_timelines = governance.get("recent_timelines", [])
+
     st.markdown("---")
-    st.markdown("### Summary")
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total Events", len(events))
-    col2.metric("Unique Actors", len(actor_counts))
-    col3.metric("Action Types", len(action_counts))
+    stats_tabs = st.tabs([
+        "Overview",
+        "Governance Metrics",
+        "Identity Alignment",
+        "Recent Incidents",
+    ])
+
+    with stats_tabs[0]:
+        st.markdown("### Summary")
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Events", len(events))
+        col2.metric("Unique Actors", len(actor_counts))
+        col3.metric("Action Types", len(action_counts))
+        if not incidents_total:
+            st.info("No correlated governance incidents detected in the current event window.")
+        else:
+            component_count = len({c for row in recent_timelines for c in (row.get("components_involved") or [])})
+            st.caption(
+                f"{incidents_total} correlated incidents observed across {component_count} component paths."
+            )
+
+    with stats_tabs[1]:
+        st.markdown("### Closed-Loop Governance Metrics")
+        if not incidents_total:
+            st.info("No correlated governance incidents detected in the current event window.")
+        else:
+            g1, g2, g3, g4 = st.columns(4)
+            g1.metric("Incidents", incidents_total)
+            g2.metric("Intervention Success", f"{governance.get('intervention_success_rate', 0) or 0:.2f}%")
+            g3.metric("Prevented Pre-Exec", f"{governance.get('unsafe_action_prevented_before_execution_pct', 0) or 0:.2f}%")
+            g4.metric("Scoped Authority", f"{governance.get('scoped_authority_coverage', 0) or 0:.2f}%")
+
+            g5, g6, g7, g8 = st.columns(4)
+            g5.metric("TTD Avg", _fmt_seconds(governance.get("time_to_detection_seconds_avg")))
+            g6.metric("TTDec Avg", _fmt_seconds(governance.get("time_to_decision_seconds_avg")))
+            g7.metric("TTContain Avg", _fmt_seconds(governance.get("time_to_containment_seconds_avg")))
+            g8.metric("TTEvidence Avg", _fmt_seconds(governance.get("time_to_evidence_validation_seconds_avg")))
+
+    with stats_tabs[2]:
+        st.markdown("### Identity And Authorization Alignment")
+        if not incidents_total:
+            st.info("Identity alignment metrics will appear once correlated incidents are available.")
+        else:
+            i1, i2, i3, i4 = st.columns(4)
+            i1.metric("Identity Confidence", f"{governance.get('identity_confidence_avg', 0) or 0:.3f}")
+            i2.metric("Observed Drift", f"{governance.get('observed_identity_drift_pct', 0) or 0:.2f}%")
+            i3.metric("Approval Provenance", f"{governance.get('approval_provenance_coverage', 0) or 0:.2f}%")
+            i4.metric("On-Behalf-Of", f"{governance.get('on_behalf_of_coverage', 0) or 0:.2f}%")
+            st.caption(f"Max delegation depth observed: {int(governance.get('delegation_depth_max', 0) or 0)}")
+
+    with stats_tabs[3]:
+        st.markdown("### Recent Incident Timelines")
+        if not recent_timelines:
+            st.info("No recent incident timelines available.")
+        else:
+            rows = []
+            for item in recent_timelines[:10]:
+                rows.append({
+                    "incident_key": item.get("incident_key"),
+                    "decision": item.get("latest_decision") or "n/a",
+                    "detected_at": format_timestamp(item.get("detected_at")),
+                    "contained_at": format_timestamp(item.get("contained_at")),
+                    "tt_contain_s": item.get("time_to_containment_seconds"),
+                    "authority": "yes" if item.get("scoped_authority_enforced") else "no",
+                    "prevented_pre_exec": "yes" if item.get("unsafe_action_prevented_before_execution") else "no",
+                    "identity_conf": item.get("identity_confidence_avg"),
+                    "identity_drift": "yes" if item.get("observed_identity_drift") else "no",
+                    "approval": "yes" if item.get("approval_provenance_present") else "no",
+                    "obo": "yes" if item.get("on_behalf_of_present") else "no",
+                    "components": ", ".join(item.get("components_involved") or []),
+                })
+            st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
 
 # ============================================================================
@@ -1591,59 +1672,127 @@ def render_forensics():
     """Forensics analysis"""
     st.title("🕵️ Forensics")
 
-    recent_events = get_operational_events(limit=300)
-    recent_alerts = derive_siem_alerts(recent_events)
-    high_or_critical_alerts = [a for a in recent_alerts if a["severity"] in {"HIGH", "CRITICAL"}]
-    active_operational_incident = len(high_or_critical_alerts) > 0
+    tab_incident, tab_interop, tab_threats = st.tabs(["Incident View", "Interoperability Report", "Threat Cards"])
 
-    if st.session_state.lockdown_active:
-        st.error("🚨 **ACTIVE INCIDENT DETECTED**")
-        
-        report = st.session_state.last_report
-        
-        if report:
-            st.markdown("### Incident Details")
-            
-            critical = report.get_critical_issues()
-            
-            if critical:
-                st.markdown("#### Critical Issues")
-                for issue in critical:
-                    st.error(f"- {issue}")
-            
+    recent_events = get_operational_events(limit=300)
+
+    with tab_incident:
+        recent_alerts = derive_siem_alerts(recent_events)
+        high_or_critical_alerts = [a for a in recent_alerts if a["severity"] in {"HIGH", "CRITICAL"}]
+        active_operational_incident = len(high_or_critical_alerts) > 0
+
+        if st.session_state.lockdown_active:
+            st.error("🚨 **ACTIVE INCIDENT DETECTED**")
+
+            report = st.session_state.last_report
+
+            if report:
+                st.markdown("### Incident Details")
+
+                critical = report.get_critical_issues()
+
+                if critical:
+                    st.markdown("#### Critical Issues")
+                    for issue in critical:
+                        st.error(f"- {issue}")
+
+                st.markdown("---")
+
+                st.markdown("### Recommended Actions")
+                st.markdown("""
+                1. 🔒 System is in LOCKDOWN mode
+                2. 🔍 Review the integrity issues above
+                3. 📝 Check recent events in Audit Trail
+                4. 🛠️ Run integrity repair if needed
+                5. 🚨 Consider activating Kill-Switch if compromise is severe
+                """)
+        elif active_operational_incident:
+            st.warning("⚠️ **OPERATIONAL INCIDENT SIGNALS DETECTED**")
+            if st.session_state.last_report and getattr(st.session_state.last_report, "compatibility_mode", False):
+                st.caption("Ledger monitoring is active in compatibility mode. These alerts reflect live operational signals, not a current ledger tampering verdict.")
+            st.markdown("### Alert Summary (Last 300 Events)")
+            c1, c2 = st.columns(2)
+            c1.metric("Derived Alerts", len(recent_alerts))
+            c2.metric("Critical/High", len(high_or_critical_alerts))
             st.markdown("---")
-            
-            st.markdown("### Recommended Actions")
+            for alert in recent_alerts[:10]:
+                st.markdown(
+                    f"- `{format_timestamp(alert['timestamp'])}` | `{alert['severity']}` | "
+                    f"`{alert['actor_id']}` | `{alert['action_type']}` | risk={alert['risk']:.2f}"
+                )
+        else:
+            st.success("✅ **NO INCIDENTS DETECTED**")
+
+            st.markdown("### System Status")
             st.markdown("""
-            1. 🔒 System is in LOCKDOWN mode
-            2. 🔍 Review the integrity issues above
-            3. 📝 Check recent events in Audit Trail
-            4. 🛠️ Run integrity repair if needed
-            5. 🚨 Consider activating Kill-Switch if compromise is severe
+            - 🟢 Ledger integrity: **VALID**
+            - 🟢 No tampering detected
+            - 🟢 All checks passing
             """)
-    elif active_operational_incident:
-        st.warning("⚠️ **OPERATIONAL INCIDENT SIGNALS DETECTED**")
-        if st.session_state.last_report and getattr(st.session_state.last_report, "compatibility_mode", False):
-            st.caption("Ledger monitoring is active in compatibility mode. These alerts reflect live operational signals, not a current ledger tampering verdict.")
-        st.markdown("### Alert Summary (Last 300 Events)")
+
+    with tab_interop:
+        report = summarize_interoperability_report(recent_events)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Handoff Events", report.get("handoff_events", 0))
+        c2.metric("Max Route Hops", report.get("route_hops_max", 0))
+        c3.metric("Missing Contract IDs", report.get("missing_contract_id_events", 0))
+
+        if report.get("protocol_counts"):
+            st.markdown("### Protocol Coverage")
+            st.bar_chart(report.get("protocol_counts"))
+
+        if report.get("standards_tag_counts"):
+            st.markdown("### Standards Tags")
+            st.bar_chart(report.get("standards_tag_counts"))
+
+        if report.get("recent_handoffs"):
+            st.markdown("### Recent Handoffs")
+            st.dataframe(pd.DataFrame(report.get("recent_handoffs", [])), use_container_width=True)
+        else:
+            st.info("No interoperability handoff metadata recorded in the current event window.")
+
+    with tab_threats:
+        cards = load_threat_cards()
+        coverage = summarize_threat_card_coverage(recent_events, cards)
         c1, c2 = st.columns(2)
-        c1.metric("Derived Alerts", len(recent_alerts))
-        c2.metric("Critical/High", len(high_or_critical_alerts))
-        st.markdown("---")
-        for alert in recent_alerts[:10]:
-            st.markdown(
-                f"- `{format_timestamp(alert['timestamp'])}` | `{alert['severity']}` | "
-                f"`{alert['actor_id']}` | `{alert['action_type']}` | risk={alert['risk']:.2f}"
-            )
-    else:
-        st.success("✅ **NO INCIDENTS DETECTED**")
-        
-        st.markdown("### System Status")
-        st.markdown("""
-        - 🟢 Ledger integrity: **VALID**
-        - 🟢 No tampering detected
-        - 🟢 All checks passing
-        """)
+        c1.metric("Threat Cards", coverage.get("total_cards", 0))
+        c2.metric("Coverage", f"{coverage.get('coverage_pct', 0.0):.2f}%")
+
+        rows = coverage.get("cards", [])
+        if rows:
+            df = pd.DataFrame([
+                {
+                    "threat_id": row.get("threat_id"),
+                    "title": row.get("title"),
+                    "incident_class": row.get("incident_class"),
+                    "severity": row.get("severity"),
+                    "coverage_status": row.get("coverage_status"),
+                    "observed_count": row.get("observed_count"),
+                    "matched_actions": ", ".join(row.get("matched_actions") or []),
+                }
+                for row in rows
+            ])
+            st.dataframe(df, use_container_width=True)
+
+            selected = st.selectbox("Threat Card Detail", [row.get("threat_id") for row in rows])
+            chosen = next((row for row in rows if row.get("threat_id") == selected), None)
+            if chosen:
+                base = next((card for card in cards if card.get("threat_id") == selected), {})
+                st.markdown(f"**{base.get('title', selected)}**")
+                st.markdown(base.get("summary", ""))
+                st.markdown(f"**Attack Pattern:** `{base.get('attack_pattern', 'n/a')}`")
+                st.markdown(f"**Detection Surfaces:** {', '.join(base.get('detection_surfaces', []))}")
+                st.markdown(f"**Mitigations:** {', '.join(base.get('mitigations', []))}")
+                if base.get("publicity_points"):
+                    st.markdown("**Push-Out Notes**")
+                    for point in base.get("publicity_points", []):
+                        st.markdown(f"- {point}")
+                if base.get("source_refs"):
+                    st.markdown("**Sources / Context**")
+                    for ref in base.get("source_refs", []):
+                        st.markdown(f"- {ref}")
+        else:
+            st.info("No threat cards loaded.")
 
 
 # ============================================================================
