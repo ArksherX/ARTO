@@ -1,7 +1,7 @@
-# ARTO Security Suite — Use Guide
+# ARTO Security Framework — Use Guide
 
-**Version:** 3.5.0  
-**Date:** 2026-04-07  
+**Version:** 1  
+**Date:** 2026-06-02  
 **Components:** Tessera (Identity) + VerityFlux (Verification) + Vestigia (Evidence)
 
 ---
@@ -21,6 +21,11 @@ A practical way to think about it:
 - Vestigia records **what happened**, **why it mattered**, and **whether the evidence chain remains valid**
 
 ---
+  - when to use each tool alone
+  - what each standalone mode gives you
+  - what it does not give you
+  - recommended pairings
+  - full-suite workflow
 
 ## 2. Start The Suite
 
