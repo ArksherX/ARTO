@@ -18,6 +18,9 @@ import re
 import secrets
 from pathlib import Path
 from datetime import datetime, timedelta
+ROOT_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT_DIR))
+from shared.theme import inject_css
 import urllib.request
 from urllib import request as urllib_request
 
@@ -173,25 +176,24 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+inject_css("tessera")
+
 
 # ============================================
-# STYLING
+# LOCAL COMPONENT STYLING
 # ============================================
 
 st.markdown("""
 <style>
-    .stApp {
-        background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
-    }
-    
     .metric-card {
-        background: linear-gradient(135deg, #161b33 0%, #1e2642 100%);
-        padding: 20px;
-        border-radius: 12px;
-        border: 1px solid #30363d;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        background: #FFFFFF;
+        padding: 14px;
+        border-radius: 4px;
+        border: 1px solid #D8E0EA;
+        border-left: 3px solid #0F6E56;
+        box-shadow: none;
     }
-    
+
     .status-indicator {
         display: inline-block;
         width: 10px;
@@ -199,50 +201,39 @@ st.markdown("""
         border-radius: 50%;
         margin-right: 8px;
     }
-    
-    .status-active {
-        background-color: #26a641;
-        box-shadow: 0 0 10px rgba(38, 166, 65, 0.5);
-        animation: pulse 2s infinite;
-    }
-    
-    .status-inactive {
-        background-color: #6e7681;
-    }
-    
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
-    }
-    
+
+    .status-active { background-color: #0F6E56; }
+    .status-inactive { background-color: #607086; }
+
     .event-row {
-        padding: 12px;
-        margin: 8px 0;
-        border-radius: 8px;
-        border-left: 4px solid #238636;
-        background-color: #0d1117;
+        padding: 10px;
+        margin: 6px 0;
+        border-radius: 4px;
+        border: 1px solid #D8E0EA;
+        border-left: 4px solid #0F6E56;
+        background-color: #FFFFFF;
     }
-    
-    .event-denied {
-        border-left-color: #da3633;
-    }
-    
+
+    .event-denied { border-left-color: #C0392B; }
+
     .token-display {
-        background: #161b22;
-        padding: 15px;
-        border-radius: 5px;
-        border: 1px solid #30363d;
-        font-family: 'Courier New', monospace;
+        background: #0A1825;
+        color: #A8C4DC;
+        padding: 12px;
+        border-radius: 2px;
+        border: 1px solid #162840;
+        font-family: 'JetBrains Mono', monospace;
         font-size: 0.9em;
         word-break: break-all;
     }
-    
+
     .integration-badge {
-        background: #1e3a1e;
-        padding: 8px 16px;
-        border-radius: 6px;
-        border-left: 4px solid #4ade80;
-        margin: 10px 0;
+        background: #FFFFFF;
+        padding: 8px 12px;
+        border-radius: 4px;
+        border: 1px solid #D8E0EA;
+        border-left: 4px solid #0F6E56;
+        margin: 8px 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -506,6 +497,7 @@ def parse_agents_upload(uploaded_file) -> list:
 # ============================================
 
 with st.sidebar:
+    st.markdown('### ARTO<span style="color:#0F6E56">NEXA</span> // TESSERA', unsafe_allow_html=True)
     st.markdown("### 🛡️ Tessera Control Center")
     
     # Connection status

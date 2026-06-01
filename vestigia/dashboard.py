@@ -22,6 +22,8 @@ import re
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from shared.theme import inject_css, status_box
 
 # Import VestigiaLedger
 from core.ledger_engine import VestigiaLedger
@@ -40,7 +42,6 @@ SHARED_AUDIT_LOG = os.getenv(
 API_BASE = os.getenv("VESTIGIA_API_BASE", "http://localhost:8002")
 API_KEY = os.getenv("VESTIGIA_API_KEY", "")
 CONFERENCE_MODE = os.getenv("VESTIGIA_CONFERENCE_MODE", "true").lower() in ("1", "true", "yes")
-BILLING_NAV_LABEL = "🧪 Service Tiers & SLA" if CONFERENCE_MODE else "💳 Plan & Billing"
 
 
 def _project_root() -> Path:
@@ -127,39 +128,7 @@ st.set_page_config(
 )
 
 # CSS
-st.markdown("""
-<style>
-    .main {
-        background: linear-gradient(135deg, #0f1419 0%, #1a1f2e 100%);
-        color: #e8eaed;
-    }
-    
-    .watchtower-banner {
-        background: linear-gradient(135deg, #1e3a1e 0%, #2d5a2d 100%);
-        padding: 24px 32px;
-        border-radius: 12px;
-        margin-bottom: 32px;
-        border-left: 6px solid #4ade80;
-        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
-    }
-    
-    .watchtower-banner-alert {
-        background: linear-gradient(135deg, #4a1e1e 0%, #6a2929 100%);
-        border-left-color: #ef4444;
-    }
-    
-    .stMetric {
-        background: linear-gradient(135deg, #1e293b 0%, #2d3748 100%);
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid #3f4b5f;
-    }
-    
-    h1, h2, h3 {
-        color: #f3f4f6 !important;
-    }
-</style>
-""", unsafe_allow_html=True)
+inject_css("vestigia")
 
 # ============================================================================
 # STATE INITIALIZATION
@@ -169,8 +138,8 @@ def initialize_state():
     if 'initialized' not in st.session_state:
         integration_enabled = os.getenv("MLRT_INTEGRATION_ENABLED", "false").lower() in ("1", "true", "yes")
         st.session_state.initialized = True
-        st.session_state.auto_refresh = True
-        st.session_state.refresh_interval = 3
+        st.session_state.auto_refresh = False
+        st.session_state.refresh_interval = 10
         st.session_state.ledger_path = 'data/vestigia_ledger.json'
         st.session_state.lockdown_active = False
         st.session_state.watchtower_checks = 0
@@ -864,20 +833,32 @@ def get_api_events(limit=50, action_type=None):
 # ============================================================================
 
 def render_sidebar():
-    st.sidebar.title("🛡️ Vestigia Control Center")
+    st.sidebar.markdown('### ARTO<span style="color:#A8C4DC">NEXA</span> // VESTIGIA', unsafe_allow_html=True)
     st.sidebar.markdown("---")
     
     page = st.sidebar.radio(
         "Navigation",
-        ["🏠 Dashboard", "📊 Statistics", "📣 SIEM Alerts", "🤖 NL Query",
-         "📘 Playbooks", "📈 Risk Forecast", "📤 Uploads", "🏢 Tenants",
-         "🔍 Audit Trail", "🕵️ Forensics", "🤚 Approvals",
-         "🚨 Kill-Switch", "⚙️ Settings", BILLING_NAV_LABEL]
+        [
+            "🏠 Dashboard",
+            "📊 Statistics",
+            "🔍 Audit Trail",
+            "🕵️ Forensics",
+            "📣 SIEM Alerts",
+            "🤚 Approvals",
+            "🚨 Kill-Switch",
+            "⚙️ Settings",
+            "🤖 NL Query",
+            "📘 Playbooks",
+            "📈 Risk Forecast",
+            "📤 Uploads",
+            "🏢 Tenants",
+        ],
+        key="vestigia_nav_page",
     )
     
     st.sidebar.markdown("---")
     
-    st.sidebar.subheader("🏰 Watchtower Status")
+    st.sidebar.subheader("Integrity Monitor")
     
     is_alert = st.session_state.lockdown_active
     status_emoji = "🔴" if is_alert else "🟢"
@@ -889,18 +870,18 @@ def render_sidebar():
     """)
     
     st.sidebar.markdown("---")
-    st.sidebar.subheader("⚙️ Auto-Refresh")
+    st.sidebar.subheader("Refresh")
     
     st.session_state.auto_refresh = st.sidebar.checkbox(
-        "Enable Watchtower", 
+        "Auto-refresh",
         value=st.session_state.auto_refresh
     )
     
     if st.session_state.auto_refresh:
         st.session_state.refresh_interval = st.sidebar.slider(
             "Interval (seconds)",
-            min_value=2,
-            max_value=30,
+            min_value=10,
+            max_value=60,
             value=st.session_state.refresh_interval
         )
     
@@ -927,24 +908,21 @@ def render_dashboard():
     is_compromised = st.session_state.lockdown_active
     
     banner_class = "watchtower-banner-alert" if is_compromised else "watchtower-banner"
-    status_text = "🚨 TAMPERING DETECTED" if is_compromised else "✅ SECURE"
+    status_text = "TAMPERING DETECTED" if is_compromised else "SECURE"
     mode_text = "LOCKDOWN" if is_compromised else "MONITORING"
     
     st.markdown(f'''
     <div class="{banner_class}">
-        <h2>{status_text}</h2>
+        <h3>{status_text}</h3>
         <p>Mode: {mode_text} | Integrity Checks: {st.session_state.watchtower_checks}</p>
     </div>
     ''', unsafe_allow_html=True)
     
     if is_compromised:
-        st.error("🔒 **SYSTEM LOCKDOWN** - Integrity breach detected")
+        st.error("System lockdown: integrity breach detected. For a clean demo, stop the suite and run `./scripts/reset_demo_state.sh`.")
         st.markdown("---")
     elif report and getattr(report, "compatibility_mode", False):
-        st.warning(
-            "⚠️ Ledger tail is chain-consistent but hash algorithm/salt compatibility differs. "
-            "Monitoring mode remains active."
-        )
+        st.markdown(status_box("Ledger tail is chain-consistent, but older entries were written under a different hash/salt regime. Monitoring remains active.", "warning"), unsafe_allow_html=True)
         st.caption(
             "Recent entries are operationally trustworthy for monitoring, but older ledger material was written under a different compatibility regime. "
             "Reset or rebuild the ledger if you need a fully pristine canonical integrity state."
@@ -962,7 +940,7 @@ def render_dashboard():
         col1.metric("Ledger Status", "⏳ READY")
         col2.metric("Total Events", "0")
         col3.metric("Critical Issues", "0")
-        col4.metric("Watchtower", f"{st.session_state.watchtower_checks} checks")
+        col4.metric("Integrity Checks", st.session_state.watchtower_checks)
         
         st.markdown("---")
         st.subheader("🚀 Getting Started")
@@ -994,7 +972,7 @@ def render_dashboard():
         st.metric("Critical Issues", critical)
     
     with col4:
-        st.metric("Watchtower", f"{st.session_state.watchtower_checks} checks")
+        st.metric("Integrity Checks", st.session_state.watchtower_checks)
     
     st.markdown("---")
 
@@ -1139,14 +1117,15 @@ def render_statistics():
     recent_timelines = governance.get("recent_timelines", [])
 
     st.markdown("---")
-    stats_tabs = st.tabs([
-        "Overview",
-        "Governance Metrics",
-        "Identity Alignment",
-        "Recent Incidents",
-    ])
+    stats_view = st.radio(
+        "Statistics View",
+        ["Overview", "Governance Metrics", "Identity Alignment", "Recent Incidents"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="vestigia_statistics_view",
+    )
 
-    with stats_tabs[0]:
+    if stats_view == "Overview":
         st.markdown("### Summary")
         col1, col2, col3 = st.columns(3)
         col1.metric("Total Events", len(events))
@@ -1156,11 +1135,9 @@ def render_statistics():
             st.info("No correlated governance incidents detected in the current event window.")
         else:
             component_count = len({c for row in recent_timelines for c in (row.get("components_involved") or [])})
-            st.caption(
-                f"{incidents_total} correlated incidents observed across {component_count} component paths."
-            )
+            st.caption(f"{incidents_total} correlated incidents observed across {component_count} component paths.")
 
-    with stats_tabs[1]:
+    elif stats_view == "Governance Metrics":
         st.markdown("### Closed-Loop Governance Metrics")
         if not incidents_total:
             st.info("No correlated governance incidents detected in the current event window.")
@@ -1170,14 +1147,13 @@ def render_statistics():
             g2.metric("Intervention Success", f"{governance.get('intervention_success_rate', 0) or 0:.2f}%")
             g3.metric("Prevented Pre-Exec", f"{governance.get('unsafe_action_prevented_before_execution_pct', 0) or 0:.2f}%")
             g4.metric("Scoped Authority", f"{governance.get('scoped_authority_coverage', 0) or 0:.2f}%")
-
             g5, g6, g7, g8 = st.columns(4)
             g5.metric("TTD Avg", _fmt_seconds(governance.get("time_to_detection_seconds_avg")))
             g6.metric("TTDec Avg", _fmt_seconds(governance.get("time_to_decision_seconds_avg")))
             g7.metric("TTContain Avg", _fmt_seconds(governance.get("time_to_containment_seconds_avg")))
             g8.metric("TTEvidence Avg", _fmt_seconds(governance.get("time_to_evidence_validation_seconds_avg")))
 
-    with stats_tabs[2]:
+    elif stats_view == "Identity Alignment":
         st.markdown("### Identity And Authorization Alignment")
         if not incidents_total:
             st.info("Identity alignment metrics will appear once correlated incidents are available.")
@@ -1189,7 +1165,7 @@ def render_statistics():
             i4.metric("On-Behalf-Of", f"{governance.get('on_behalf_of_coverage', 0) or 0:.2f}%")
             st.caption(f"Max delegation depth observed: {int(governance.get('delegation_depth_max', 0) or 0)}")
 
-    with stats_tabs[3]:
+    elif stats_view == "Recent Incidents":
         st.markdown("### Recent Incident Timelines")
         if not recent_timelines:
             st.info("No recent incident timelines available.")
@@ -1672,11 +1648,17 @@ def render_forensics():
     """Forensics analysis"""
     st.title("🕵️ Forensics")
 
-    tab_incident, tab_interop, tab_threats = st.tabs(["Incident View", "Interoperability Report", "Threat Cards"])
+    forensic_view = st.radio(
+        "Forensics View",
+        ["Incident View", "Interoperability Report", "Threat Cards"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="vestigia_forensics_view",
+    )
 
     recent_events = get_operational_events(limit=300)
 
-    with tab_incident:
+    if forensic_view == "Incident View":
         recent_alerts = derive_siem_alerts(recent_events)
         high_or_critical_alerts = [a for a in recent_alerts if a["severity"] in {"HIGH", "CRITICAL"}]
         active_operational_incident = len(high_or_critical_alerts) > 0
@@ -1730,7 +1712,7 @@ def render_forensics():
             - 🟢 All checks passing
             """)
 
-    with tab_interop:
+    elif forensic_view == "Interoperability Report":
         report = summarize_interoperability_report(recent_events)
         c1, c2, c3 = st.columns(3)
         c1.metric("Handoff Events", report.get("handoff_events", 0))
@@ -1751,7 +1733,7 @@ def render_forensics():
         else:
             st.info("No interoperability handoff metadata recorded in the current event window.")
 
-    with tab_threats:
+    elif forensic_view == "Threat Cards":
         cards = load_threat_cards()
         coverage = summarize_threat_card_coverage(recent_events, cards)
         c1, c2 = st.columns(2)
@@ -1876,234 +1858,6 @@ def render_settings():
 # PLAN & BILLING  (Phase 6)
 # ============================================================================
 
-def render_billing():
-    if CONFERENCE_MODE:
-        st.title("🧪 Service Tiers & SLA — Research View")
-        st.caption("Conference mode: commercial billing controls are hidden; focus is reliability, multi-tenancy, and operational evidence.")
-    else:
-        st.title("💳 Plan & Billing — Phase 6 Complete")
-    import urllib.request as _ureq
-
-    vestigia_api = os.getenv("VESTIGIA_API_URL", API_BASE).rstrip("/")
-    _api_key = st.session_state.get("api_key", "")
-    _auth_hdr = {"Authorization": f"Bearer {_api_key}"} if _api_key else {}
-
-    def _get(path: str, timeout: int = 3):
-        try:
-            req = _ureq.Request(f"{vestigia_api}{path}", headers=_auth_hdr)
-            with _ureq.urlopen(req, timeout=timeout) as r:
-                return json.loads(r.read().decode()), None
-        except Exception as exc:
-            return None, str(exc)
-
-    tab_sla, tab_usage, tab_incidents, tab_tiers = st.tabs(
-        ["SLA Status", "Usage Report", "Incident Transparency", "Plan Tiers"]
-    )
-
-    # --- SLA Status tab ---
-    with tab_sla:
-        st.subheader("System Availability (30-day rolling)")
-        sla_metrics, err = _get("/sla/metrics?days=30&plan=pro")
-        status_sum, _ = _get("/sla/status")
-
-        if sla_metrics:
-            uptime = sla_metrics.get("uptime_pct", 100.0)
-            sla_met = sla_metrics.get("sla_met", True)
-            target = sla_metrics.get("target", {})
-            incidents_info = sla_metrics.get("incidents", {})
-
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Uptime (30d)", f"{uptime:.3f}%",
-                        delta="SLA met" if sla_met else "SLA BREACH",
-                        delta_color="normal" if sla_met else "inverse")
-            col2.metric("MTTD", f"{sla_metrics.get('mttd_minutes', 0):.0f} min",
-                        help="Mean Time To Detect an incident")
-            col3.metric("MTTR", f"{sla_metrics.get('mttr_minutes', 0):.0f} min",
-                        help="Mean Time To Resolve")
-            col4.metric("Open Incidents", incidents_info.get("open", 0))
-
-            if sla_met:
-                st.success(f"Uptime {uptime:.3f}% meets target {target.get('uptime_pct', 99.9)}%")
-            else:
-                st.error(f"Uptime {uptime:.3f}% is BELOW target {target.get('uptime_pct', 99.9)}%")
-
-            comp_uptime = sla_metrics.get("component_uptime", {})
-            if comp_uptime:
-                st.subheader("Component Availability")
-                comp_df = pd.DataFrame([
-                    {"Component": comp, "Uptime %": f"{pct:.2f}%",
-                     "Status": "OK" if pct >= 99.9 else "Degraded" if pct >= 95 else "Down"}
-                    for comp, pct in comp_uptime.items()
-                ])
-                st.dataframe(comp_df, use_container_width=True, hide_index=True)
-        else:
-            if status_sum:
-                overall = status_sum.get("overall", "unknown")
-                color = {"operational": "green", "partial_outage": "orange",
-                         "major_outage": "red"}.get(overall, "gray")
-                st.markdown(f"**System Status:** :{color}[{overall.upper()}]")
-                comp = status_sum.get("components", {})
-                if comp:
-                    st.json(comp)
-            else:
-                st.info(f"SLA metrics unavailable (API offline): {err}")
-                st.markdown("---")
-                st.subheader("SLA Targets")
-                st.dataframe(pd.DataFrame([
-                    {"Plan": "Free", "Uptime Target": "99%", "Downtime/Month": "7.2 hrs",
-                     "Response Time": "240 min", "Resolution": "48 hrs"},
-                    {"Plan": "Pro", "Uptime Target": "99.9%", "Downtime/Month": "43.8 min",
-                     "Response Time": "60 min", "Resolution": "8 hrs"},
-                    {"Plan": "Enterprise", "Uptime Target": "99.99%", "Downtime/Month": "4.4 min",
-                     "Response Time": "15 min", "Resolution": "2 hrs"},
-                ]), use_container_width=True, hide_index=True)
-
-    # --- Usage Report tab ---
-    with tab_usage:
-        st.subheader("Tenant Usage vs. Plan Limits")
-        usage_data, err = _get("/billing/summary")
-        if usage_data:
-            summaries = usage_data.get("summaries", [usage_data] if "tenant_id" in usage_data else [])
-            if summaries:
-                rows = []
-                for s in summaries:
-                    u = s.get("usage", {})
-                    lim = s.get("limits", {})
-                    est = s.get("estimate_usd", {})
-                    rows.append({
-                        "Tenant": s.get("tenant_id", ""),
-                        "Tier": s.get("plan", "free"),
-                        "Events Today": u.get("events_today", 0),
-                        "Day Limit": lim.get("events_per_day", "N/A"),
-                        "Daily Util%": f"{u.get('daily_utilisation_pct', 0):.1f}%",
-                        "Events Month": u.get("events_this_month", 0),
-                        "Month Limit": lim.get("events_per_month", "N/A"),
-                        "Monthly Util%": f"{u.get('monthly_utilisation_pct', 0):.1f}%",
-                        "Overage Events": u.get("overage_events", 0),
-                        "Est. Bill": f"${est.get('total', 0)}" if est.get("total") != "custom" else "Custom",
-                    })
-                    if CONFERENCE_MODE:
-                        rows[-1].pop("Est. Bill", None)
-                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-                # Plan management
-                if not CONFERENCE_MODE:
-                    st.markdown("---")
-                    st.subheader("Change Tenant Plan")
-                    c1, c2, c3 = st.columns(3)
-                    with c1:
-                        chg_tenant = st.text_input("Tenant ID", key="billing_chg_tenant")
-                    with c2:
-                        chg_plan = st.selectbox("New Plan", ["free", "pro", "enterprise"], key="billing_chg_plan")
-                    with c3:
-                        st.write("")
-                        st.write("")
-                        if st.button("Update Plan", key="billing_update_plan"):
-                            try:
-                                import json as _json
-                                req = _ureq.Request(
-                                    f"{vestigia_api}/billing/plan",
-                                    data=_json.dumps({"tenant_id": chg_tenant, "plan": chg_plan}).encode(),
-                                    headers={"Content-Type": "application/json", **_auth_hdr},
-                                    method="PUT",
-                                )
-                                with _ureq.urlopen(req, timeout=5) as r:
-                                    result = _json.loads(r.read().decode())
-                                st.success(f"Plan updated: {result}")
-                            except Exception as exc:
-                                st.error(f"Failed: {exc}")
-                else:
-                    st.info("Tier update controls hidden in conference mode.")
-            else:
-                st.info("No tenants with usage data yet. Usage is recorded as events are ingested.")
-        else:
-            st.info(f"Usage data unavailable: {err}")
-
-    # --- Incident Transparency tab ---
-    with tab_incidents:
-        st.subheader("Service Incident Log")
-        incidents, err = _get("/sla/incidents?limit=20")
-        if incidents is not None:
-            if incidents:
-                for inc in incidents:
-                    status_color = {
-                        "investigating": "red", "identified": "orange",
-                        "monitoring": "yellow", "resolved": "green"
-                    }.get(inc.get("status", ""), "gray")
-                    sev_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}.get(
-                        inc.get("severity", ""), "⚪"
-                    )
-                    with st.expander(
-                        f"{sev_icon} [{inc.get('id', '')}] {inc.get('title', '')} "
-                        f"— :{status_color}[{inc.get('status', '').upper()}]",
-                        expanded=inc.get("status") != "resolved",
-                    ):
-                        col1, col2 = st.columns(2)
-                        col1.write(f"**Component:** {inc.get('component', '')}")
-                        col1.write(f"**Severity:** {inc.get('severity', '').upper()}")
-                        col2.write(f"**Started:** {inc.get('started_at', '')[:19]}")
-                        col2.write(f"**Resolved:** {inc.get('resolved_at', 'Ongoing')[:19] if inc.get('resolved_at') else 'Ongoing'}")
-                        if inc.get("description"):
-                            st.write(inc["description"])
-                        updates = inc.get("updates", [])
-                        if updates:
-                            st.markdown("**Updates:**")
-                            for u in updates:
-                                st.caption(f"`{u.get('ts', '')[:19]}` **{u.get('status', '')}** — {u.get('text', '')}")
-            else:
-                st.success("No recorded service incidents — system fully operational.")
-
-        st.markdown("---")
-        st.subheader("Report New Incident")
-        with st.form("new_sla_incident"):
-            i1, i2 = st.columns(2)
-            with i1:
-                inc_component = st.selectbox("Component", ["api", "ledger", "anomaly_engine", "siem_forwarder", "dashboard"])
-                inc_severity = st.selectbox("Severity", ["critical", "high", "medium", "low"])
-            with i2:
-                inc_title = st.text_input("Title", placeholder="API response times elevated")
-                inc_plan = st.selectbox("Affected Plan", ["pro", "enterprise", "free"])
-            inc_desc = st.text_area("Description", placeholder="Describe the impact and scope")
-            if st.form_submit_button("Create Incident", type="primary"):
-                try:
-                    import json as _json
-                    req = _ureq.Request(
-                        f"{vestigia_api}/sla/incidents",
-                        data=_json.dumps({
-                            "component": inc_component, "severity": inc_severity,
-                            "title": inc_title, "description": inc_desc, "tenant_plan": inc_plan,
-                        }).encode(),
-                        headers={"Content-Type": "application/json", **_auth_hdr},
-                        method="POST",
-                    )
-                    with _ureq.urlopen(req, timeout=5) as r:
-                        created = _json.loads(r.read().decode())
-                    st.success(f"Incident created: {created.get('id')}")
-                except Exception as exc:
-                    st.error(f"Failed to create incident: {exc}")
-
-    # --- Plan Tiers tab ---
-    with tab_tiers:
-        st.subheader("Plan Tiers")
-        st.dataframe(pd.DataFrame([
-            {"Plan": "Free", "Events/Day": "1,000", "Events/Month": "10,000",
-             "Users": 5, "Retention": "7 days", "Price": "$0/mo",
-             "Support": "Community", "Features": "Basic dashboard, hash-chain, basic SIEM"},
-            {"Plan": "Pro", "Events/Day": "10,000", "Events/Month": "100,000",
-             "Users": 50, "Retention": "90 days", "Price": "$99/mo",
-             "Support": "Email (8h SLA)", "Features": "+ Anomaly detection, NL query, playbooks, risk forecast"},
-            {"Plan": "Enterprise", "Events/Day": "100,000", "Events/Month": "Unlimited",
-             "Users": 500, "Retention": "365 days", "Price": "Custom",
-             "Support": "Dedicated (2h SLA)", "Features": "All features + HSM, blockchain, custom retention, multi-region"},
-        ]), use_container_width=True, hide_index=True)
-
-        st.subheader("SLA Commitments")
-        st.dataframe(pd.DataFrame([
-            {"Plan": "Free",       "Uptime": "99%",    "MTTD": "N/A",   "MTTR": "48 hrs", "Downtime/Month": "7.2 hrs"},
-            {"Plan": "Pro",        "Uptime": "99.9%",  "MTTD": "60 min","MTTR": "8 hrs",  "Downtime/Month": "43.8 min"},
-            {"Plan": "Enterprise", "Uptime": "99.99%", "MTTD": "15 min","MTTR": "2 hrs",  "Downtime/Month": "4.4 min"},
-        ]), use_container_width=True, hide_index=True)
-
 
 # ============================================================================
 # MAIN
@@ -2144,8 +1898,6 @@ def main():
         render_killswitch()
     elif page == "⚙️ Settings":
         render_settings()
-    elif page == BILLING_NAV_LABEL:
-        render_billing()
 
     if st.session_state.auto_refresh:
         time.sleep(st.session_state.refresh_interval)

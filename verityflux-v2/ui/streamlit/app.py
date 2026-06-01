@@ -31,6 +31,10 @@ import urllib.request
 import urllib.error
 from glob import glob
 from pathlib import Path
+ROOT_DIR = Path(__file__).resolve().parents[3]
+import sys
+sys.path.insert(0, str(ROOT_DIR))
+from shared.theme import inject_css, status_box
 
 # Page configuration
 st.set_page_config(
@@ -39,88 +43,79 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+inject_css("verityflux")
+
 
 # =============================================================================
-# CUSTOM CSS
+# LOCAL COMPONENT CSS
 # =============================================================================
 
 st.markdown("""
 <style>
-    /* Main theme */
-    .main {
-        padding: 1rem;
-    }
-    
-    /* Metric cards */
+    .main { padding: 1rem; }
+
     .metric-card {
-        background: linear-gradient(135deg, #1e3a5f 0%, #0d1b2a 100%);
-        border-radius: 10px;
-        padding: 1.5rem;
-        color: white;
+        background: #FFFFFF;
+        border-radius: 4px;
+        padding: 1rem;
+        color: #172033;
         text-align: center;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        border: 1px solid #D8E0EA;
+        border-left: 3px solid #C0392B;
+        box-shadow: none;
     }
-    
+
     .metric-value {
-        font-size: 2.5rem;
-        font-weight: bold;
-        margin: 0.5rem 0;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 2.2rem;
+        font-weight: 500;
+        margin: 0.35rem 0;
+        color: #172033;
     }
-    
+
     .metric-label {
-        font-size: 0.9rem;
-        opacity: 0.8;
-    }
-    
-    /* Threat level indicators */
-    .threat-green { color: #00ff00; }
-    .threat-yellow { color: #ffff00; }
-    .threat-orange { color: #ff8c00; }
-    .threat-red { color: #ff0000; }
-    
-    /* Status badges */
-    .badge {
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
+        font-family: 'JetBrains Mono', monospace;
         font-size: 0.8rem;
+        color: #607086;
+        text-transform: uppercase;
+    }
+
+    .threat-green { color: #0F6E56; }
+    .threat-yellow { color: #E67E22; }
+    .threat-orange { color: #E67E22; }
+    .threat-red { color: #C0392B; }
+
+    .badge {
+        padding: 0.2rem 0.6rem;
+        border-radius: 3px;
+        font-size: 0.78rem;
         font-weight: 600;
     }
-    
-    .badge-critical { background: #dc3545; color: white; }
-    .badge-high { background: #fd7e14; color: white; }
-    .badge-medium { background: #ffc107; color: black; }
-    .badge-low { background: #17a2b8; color: white; }
-    .badge-info { background: #6c757d; color: white; }
-    
-    /* Cards */
+
+    .badge-critical { background: #C0392B; color: white; }
+    .badge-high { background: #E67E22; color: white; }
+    .badge-medium { background: #F4C542; color: #172033; }
+    .badge-low { background: #A8C4DC; color: #172033; }
+    .badge-info { background: #607086; color: white; }
+
     .info-card {
-        background: #f8f9fa;
-        border-left: 4px solid #007bff;
+        background: #FFFFFF;
+        border-left: 4px solid #C0392B;
+        border-top: 1px solid #D8E0EA;
+        border-right: 1px solid #D8E0EA;
+        border-bottom: 1px solid #D8E0EA;
         padding: 1rem;
         margin: 0.5rem 0;
-        border-radius: 0 5px 5px 0;
-    }
-    
-    /* Sidebar */
-    .css-1d391kg {
-        padding-top: 1rem;
-    }
-    
-    /* Hide Streamlit branding */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-        width: 8px;
-    }
-    ::-webkit-scrollbar-track {
-        background: #1e1e1e;
-    }
-    ::-webkit-scrollbar-thumb {
-        background: #888;
         border-radius: 4px;
     }
+
+    .css-1d391kg { padding-top: 1rem; }
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: #F5F7FA; }
+    ::-webkit-scrollbar-thumb { background: #A8B5C5; border-radius: 4px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1650,18 +1645,18 @@ def api_get_live_incidents(api_base_url: str, api_key: Optional[str]) -> List[Di
 def render_threat_level_indicator(level: str):
     """Render threat level indicator"""
     colors = {
-        "green": ("#00ff00", "LOW"),
-        "yellow": ("#ffff00", "ELEVATED"),
-        "orange": ("#ff8c00", "HIGH"),
-        "red": ("#ff0000", "CRITICAL"),
+        "green": ("#0F6E56", "LOW"),
+        "yellow": ("#E67E22", "ELEVATED"),
+        "orange": ("#E67E22", "HIGH"),
+        "red": ("#C0392B", "CRITICAL"),
     }
     
     color, label = colors.get(level, ("#6c757d", "UNKNOWN"))
     
     st.markdown(f"""
-        <div style="text-align: center; padding: 1rem; background: #1e1e1e; border-radius: 10px; border: 2px solid {color};">
-            <div style="font-size: 0.9rem; color: #888;">THREAT LEVEL</div>
-            <div style="font-size: 2rem; font-weight: bold; color: {color}; text-shadow: 0 0 10px {color};">
+        <div style="text-align: center; padding: 1rem; background: #FFFFFF; border-radius: 4px; border: 1px solid #D8E0EA; border-left: 4px solid {color};">
+            <div style="font-size: 0.9rem; color: #607086;">THREAT LEVEL</div>
+            <div style="font-size: 2rem; font-weight: bold; color: {color}; text-shadow: none;">
                 ● {label}
             </div>
         </div>
@@ -1937,13 +1932,13 @@ def page_dashboard():
             
             with st.container():
                 st.markdown(f"""
-                    <div style="background: #1e1e1e; padding: 0.75rem; border-radius: 5px; margin-bottom: 0.5rem; border-left: 3px solid {'#dc3545' if 'critical' in incident['priority'] else '#fd7e14' if 'high' in incident['priority'] else '#ffc107'};">
+                    <div style="background: #FFFFFF; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.5rem; border: 1px solid #D8E0EA; border-left: 3px solid {'#C0392B' if 'critical' in incident['priority'] else '#E67E22' if 'high' in incident['priority'] else '#E67E22'};">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <span>{priority_color} <strong>{incident['number']}</strong></span>
                             {render_status_badge(incident['status'])}
                         </div>
-                        <div style="color: #ccc; font-size: 0.9rem; margin-top: 0.25rem;">{incident['title']}</div>
-                        <div style="color: #888; font-size: 0.8rem; margin-top: 0.25rem;">
+                        <div style="color: #172033; font-size: 0.9rem; margin-top: 0.25rem;">{incident['title']}</div>
+                        <div style="color: #607086; font-size: 0.8rem; margin-top: 0.25rem;">
                             Assigned: {incident['assigned_to'] or 'Unassigned'} | {incident['created_at'].strftime('%H:%M')}
                         </div>
                     </div>
@@ -1957,17 +1952,17 @@ def page_dashboard():
             st.caption("No pending approvals.")
         for approval in approvals[:5]:
             time_remaining = (approval["expires_at"] - datetime.now()).total_seconds() / 60
-            urgency_color = "#dc3545" if time_remaining < 10 else "#ffc107" if time_remaining < 20 else "#28a745"
+            urgency_color = "#C0392B" if time_remaining < 10 else "#E67E22" if time_remaining < 20 else "#0F6E56"
             
             with st.container():
                 st.markdown(f"""
-                    <div style="background: #1e1e1e; padding: 0.75rem; border-radius: 5px; margin-bottom: 0.5rem; border-left: 3px solid {urgency_color};">
+                    <div style="background: #FFFFFF; padding: 0.75rem; border-radius: 4px; margin-bottom: 0.5rem; border: 1px solid #D8E0EA; border-left: 3px solid {urgency_color};">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <span><strong>{approval['agent']}</strong></span>
                             {render_severity_badge(approval['risk_level'])}
                         </div>
-                        <div style="color: #ccc; font-size: 0.9rem; margin-top: 0.25rem;">{approval['title']}</div>
-                        <div style="color: #888; font-size: 0.8rem; margin-top: 0.25rem;">
+                        <div style="color: #172033; font-size: 0.9rem; margin-top: 0.25rem;">{approval['title']}</div>
+                        <div style="color: #607086; font-size: 0.8rem; margin-top: 0.25rem;">
                             Tool: {approval['tool']} | Risk: {approval['risk_score']}% | ⏱️ {int(time_remaining)}m remaining
                         </div>
                     </div>
@@ -2000,21 +1995,21 @@ def page_dashboard():
     for i, agent in enumerate(agents):
         with cols[i % 4]:
             status_color = {
-                "healthy": "#28a745",
-                "degraded": "#ffc107",
-                "unhealthy": "#fd7e14",
-                "quarantined": "#dc3545",
+                "healthy": "#0F6E56",
+                "degraded": "#E67E22",
+                "unhealthy": "#E67E22",
+                "quarantined": "#C0392B",
                 "offline": "#6c757d",
             }.get(agent["status"], "#6c757d")
             
             st.markdown(f"""
-                <div style="background: #1e1e1e; padding: 1rem; border-radius: 8px; border-top: 3px solid {status_color};">
-                    <div style="font-weight: bold; color: white;">{agent['name']}</div>
-                    <div style="color: #888; font-size: 0.8rem;">{agent['agent_type']} • {agent['model']}</div>
+                <div style="background: #FFFFFF; padding: 1rem; border-radius: 4px; border: 1px solid #D8E0EA; border-top: 3px solid {status_color};">
+                    <div style="font-weight: bold; color: #172033;">{agent['name']}</div>
+                    <div style="color: #607086; font-size: 0.8rem;">{agent['agent_type']} • {agent['model']}</div>
                     <div style="margin-top: 0.5rem;">
                         {render_status_badge(agent['status'])}
                     </div>
-                    <div style="color: #ccc; font-size: 0.85rem; margin-top: 0.5rem;">
+                    <div style="color: #172033; font-size: 0.85rem; margin-top: 0.5rem;">
                         Health: {agent['health_score']}% | Blocked: {agent['blocked_requests']}
                     </div>
                 </div>
@@ -2648,12 +2643,12 @@ def page_scanner():
         for finding in findings:
             if finding['severity'] in severity_filter:
                 st.markdown(f"""
-                    <div style="background: #1e1e1e; padding: 1rem; border-radius: 8px; margin-bottom: 0.5rem; border-left: 4px solid {'#dc3545' if finding['severity'] == 'critical' else '#fd7e14' if finding['severity'] == 'high' else '#ffc107'};">
+                    <div style="background: #FFFFFF; padding: 1rem; border-radius: 4px; margin-bottom: 0.5rem; border: 1px solid #D8E0EA; border-left: 4px solid {'#C0392B' if finding['severity'] == 'critical' else '#E67E22' if finding['severity'] == 'high' else '#E67E22'};">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <span><strong>[{finding['vuln_id']}]</strong> {finding['title']}</span>
                             {render_severity_badge(finding['severity'])}
                         </div>
-                        <div style="color: #888; font-size: 0.85rem; margin-top: 0.5rem;">
+                        <div style="color: #607086; font-size: 0.85rem; margin-top: 0.5rem;">
                             Target: {finding['target']} | Status: {finding['status'].capitalize()}
                         </div>
                     </div>
@@ -3103,11 +3098,11 @@ def page_approvals():
 
     for approval in approvals:
         time_remaining = (approval["expires_at"] - datetime.now()).total_seconds() / 60
-        urgency_color = "#dc3545" if time_remaining < 10 else "#ffc107" if time_remaining < 20 else "#28a745"
+        urgency_color = "#C0392B" if time_remaining < 10 else "#E67E22" if time_remaining < 20 else "#0F6E56"
         
         with st.container():
             st.markdown(f"""
-                <div style="background: #1e1e1e; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid {urgency_color};">
+                <div style="background: #FFFFFF; padding: 1rem; border-radius: 4px; margin-bottom: 1rem; border: 1px solid #D8E0EA; border-left: 4px solid {urgency_color};">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                         <span style="font-size: 1.1rem; font-weight: bold;">{approval['title']}</span>
                         {render_severity_badge(approval['risk_level'])}
@@ -3374,8 +3369,7 @@ def page_firewall_activity():
     if not events:
         events = get_firewall_activity(limit=500)
     if not events:
-        st.info("No firewall runtime activity found yet.")
-        st.caption("Trigger reasoning interception, tool-call interception, or policy evaluation to generate firewall decisions.")
+        st.markdown(status_box("No firewall runtime activity found yet. The firewall records decisions only when reasoning interception, tool-call interception, or policy evaluation is invoked. It does not passively populate from onboarded agents unless those agents send actions through the firewall.", "warning"), unsafe_allow_html=True)
         return
 
     window_hours = st.slider("Recency Window (hours)", min_value=1, max_value=168, value=24, step=1)
@@ -5461,6 +5455,7 @@ def _e2e_resilience(vf_base, vf_key, tessera_base, vestigia_base, scan_target_cf
 def render_sidebar():
     """Render sidebar navigation"""
     with st.sidebar:
+        st.markdown('### ARTO<span style="color:#C0392B">NEXA</span> // VERITYFLUX', unsafe_allow_html=True)
         st.image("https://via.placeholder.com/200x50?text=VerityFlux", use_container_width=True)
         st.markdown("---")
         
@@ -5469,7 +5464,7 @@ def render_sidebar():
             <div style="text-align: center; padding: 1rem 0;">
                 <div style="font-size: 2rem;">👤</div>
                 <div style="font-weight: bold;">Admin User</div>
-                <div style="color: #888; font-size: 0.8rem;">admin@acmecorp.com</div>
+                <div style="color: #607086; font-size: 0.8rem;">admin@acmecorp.com</div>
             </div>
         """, unsafe_allow_html=True)
         
@@ -5510,8 +5505,8 @@ def render_sidebar():
         _qs_pending = len(_get_pending_approvals_live(st.session_state.api_base_url, st.session_state.vf_api_key))
         _qs_source = "📡"
         st.markdown(f"""
-            <div style="padding: 0.5rem; background: #1e1e1e; border-radius: 5px;">
-                <div style="font-size: 0.8rem; color: #888;">Quick Stats {_qs_source}</div>
+            <div style="padding: 0.5rem; background: #FFFFFF; border-radius: 4px; border: 1px solid #D8E0EA;">
+                <div style="font-size: 0.8rem; color: #607086;">Quick Stats {_qs_source}</div>
                 <div>🚨 {_qs_metrics['incidents']['open']} open incidents</div>
                 <div>⏳ {_qs_pending} pending approvals</div>
                 <div>🤖 {_qs_metrics['agents']['healthy']}/{_qs_metrics['agents']['total']} agents healthy</div>

@@ -55,30 +55,32 @@ CLAUDE.md
 /summary.md
 
 # Local Python environment markers
-  .python-version
 
-  # Private working docs / meeting prep
-  Workflow_Orchestration.docx
-  meeting_notes_alex_kentaroh.md
+# Local Python environment markers
+.python-version
 
-  # Local research and drafting artifacts
-  research/
+# Private working docs / meeting prep
+Workflow_Orchestration.docx
+meeting_notes_alex_kentaroh.md
 
-  # Local runtime state
-  run/
-  tessera/logs/
-  vestigia/logs/
-  vestigia/vestigia/
+# Local research and drafting artifacts
+research/
 
-  # Local-only ops scripts
-  ops/failure_mode_e2e.py
-  ops/run_production_readiness.sh
-  ops/soak_slo_report.py
+# Local runtime state and generated demo archives
+run/
+tessera/logs/
+vestigia/logs/
+vestigia/vestigia/
 
-  # Local validation helpers
-  preflight_check.py
-  reliability_check.py
+# Local-only ops scripts
+ops/failure_mode_e2e.py
+ops/run_production_readiness.sh
+ops/soak_slo_report.py
 
+# Local validation helpers and local dependency snapshots
+preflight_check.py
+reliability_check.py
+requirements.txt
 
 verityflux-v2/multi_tenant/
 vestigia/claude.md
