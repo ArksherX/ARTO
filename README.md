@@ -54,6 +54,17 @@ Clean demo state before recording or evaluation:
 `reset_demo_state.sh` archives local runtime state under `run/demo_state_archives/<timestamp>/` before recreating clean runtime directories.
 
 ---
+## Deployment Modes
+
+  The suite can be deployed as:
+
+  - Standalone: run Tessera, Vestigia, or VerityFlux independently.
+  - Paired: combine two tools for identity + evidence, runtime + evidence, or identity + runtime.
+  - Full Suite: run all three for identity, enforcement, and evidence continuity.
+
+  Standalone usage is supported, but the full suite provides the strongest control loop:
+  Tessera -> VerityFlux -> Vestigia
+  identity -> enforcement -> evidence.
 
 ## Run One Tool Locally
 
