@@ -1,4 +1,4 @@
-# ARTO Security Suite
+# ARTO Security Framework
 
 Local-first security suite for agentic AI systems, composed of:
 - **Tessera** — identity & access control (JWT/DPoP, revocation, RBAC/SSO)
