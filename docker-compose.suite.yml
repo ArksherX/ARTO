@@ -59,6 +59,9 @@ services:
     working_dir: /app
     volumes:
       - ./tessera:/app
+      - ./shared:/shared:ro
+    environment:
+      PYTHONPATH: "/"
     command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run web_ui/tessera_dashboard.py --server.headless true"]
     ports:
       - "18501:8501"
@@ -71,6 +74,9 @@ services:
     working_dir: /app
     volumes:
       - ./vestigia:/app
+      - ./shared:/shared:ro
+    environment:
+      PYTHONPATH: "/"
     command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run dashboard.py --server.headless true"]
     ports:
       - "18502:8502"
@@ -83,6 +89,9 @@ services:
     working_dir: /app
     volumes:
       - ./verityflux-v2:/app
+      - ./shared:/shared:ro
+    environment:
+      PYTHONPATH: "/"
     command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run ui/streamlit/app.py --server.headless true"]
     ports:
       - "18503:8503"

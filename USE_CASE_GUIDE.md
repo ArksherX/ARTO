@@ -36,6 +36,17 @@ A practical way to think about it:
 ./stop_suite.sh
 ```
 
+### Clean local demo state
+
+Use this before public recordings, walkthroughs, or reviewer demos if Vestigia shows old tamper state from prior testing.
+
+```bash
+./scripts/reset_demo_state.sh
+./launch_suite.sh
+```
+
+The reset script archives local runtime evidence to `run/demo_state_archives/<timestamp>/` before clearing active local state. It does not modify source code.
+
 ### Default ports
 
 | Component | API | UI |
@@ -88,6 +99,8 @@ This is expected.
 - `VerityFlux -> MCP Security`
 - `Vestigia -> Forensics`
 - `Vestigia -> SIEM Alerts`
+- `Vestigia -> Statistics -> Governance Metrics`
+- `Vestigia -> Statistics -> Identity Alignment`
 
 ### What “empty” means
 
@@ -106,7 +119,7 @@ It does **not** automatically mean the feature is broken.
 - intercepted tool calls
 - policy evaluations
 
-It does **not** show every passive agent action in the environment.
+It does **not** show every passive agent action in the environment, and it does not populate merely because an agent was onboarded. The agent action must pass through the firewall path.
 
 ---
 
@@ -446,6 +459,8 @@ After a clean rebuild, Vestigia should show:
 
 ### Important pages
 
+Vestigia uses a shared hybrid forensic console theme and single-render view controls for heavier pages. This keeps demos readable and avoids old Streamlit tab content appearing below unrelated views.
+
 #### Dashboard
 
 Use this to check:
@@ -472,13 +487,33 @@ This page should now be less noisy than earlier versions:
 - routine token lifecycle events should not be over-promoted by default
 - risk display should be coherent
 
+#### Statistics
+
+Use this for executive and governance metrics.
+
+Views:
+- `Overview`
+- `Governance Metrics`
+- `Identity Alignment`
+- `Recent Incidents`
+
+Expected result:
+- closed-loop metrics appear after correlated events exist
+- identity alignment metrics appear after identity/delegation metadata exists
+
 #### Forensics
 
 Use this when you want to inspect operational incident signals.
 
+Views:
+- `Incident View`
+- `Interoperability Report`
+- `Threat Cards`
+
 Expected result:
 - alerts derived from actual recent event patterns
 - clearer distinction between operational events and integrity failures
+- MCP/A2A handoff and threat-card coverage where matching event metadata exists
 
 ### API examples
 
@@ -607,6 +642,17 @@ Because it is event-driven. It fills only after:
 - tool-call interception
 - policy evaluation
 
+Onboarding or importing an agent does not create firewall activity by itself.
+
+### Why does Vestigia show tampering after old demos?
+
+Vestigia validates local evidence ledgers. Prior attack simulations, manual file edits, or old runtime state can leave the local ledger in a tamper/lockdown state. For clean public demos, run:
+
+```bash
+./scripts/reset_demo_state.sh
+./launch_suite.sh
+```
+
 ### Why is MCP Security empty?
 
 Because it is also event-driven. Use the manual signing, verification, schema, and protocol tests in that page.
@@ -637,8 +683,9 @@ It is under:
 curl http://localhost:8001/health
 curl http://localhost:8002/health
 curl http://localhost:8003/health
-python3 reliability_check.py
 ```
+
+If you maintain local-only reliability helpers, run them from your private working copy rather than assuming they are part of the public repo.
 
 ### Optional functional checks
 
