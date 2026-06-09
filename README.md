@@ -13,7 +13,12 @@ The Streamlit UIs share a small repo-level theme package in `shared/`. Keep the 
 
 ## Clone And Install
 
+Python 3.11+ installed.
+Git installed
+
 ```bash
+sudo apt update
+sudo apt install -y python3-venv python3-pip
 git clone https://github.com/ArksherX/ARTO.git
 cd ARTO
 python3 -m venv venv
