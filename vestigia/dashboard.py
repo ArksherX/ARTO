@@ -1521,9 +1521,9 @@ def render_tenants():
     st.caption(f"API Base: {API_BASE}")
 
     st.markdown("### Create Tenant (Platform Admin)")
+    st.caption("Tenants provide workspace isolation for evidence and access.")
     platform_key = st.text_input("Platform Admin Key", type="password")
     tenant_name = st.text_input("Tenant Name", value="Acme Corp")
-    tenant_plan = st.selectbox("Plan", options=["free", "pro", "enterprise"])
     admin_email = st.text_input("Admin Email", value="security@acme.com")
 
     if st.button("Create Tenant", type="primary"):
@@ -1531,7 +1531,7 @@ def render_tenants():
             resp = httpx.post(
                 f"{API_BASE}/tenants",
                 headers={"X-Platform-Admin": platform_key},
-                json={"name": tenant_name, "plan": tenant_plan, "admin_email": admin_email},
+                json={"name": tenant_name, "admin_email": admin_email},
                 timeout=10.0,
             )
             resp.raise_for_status()
@@ -1852,11 +1852,6 @@ def render_settings():
                 st.error(f"❌ Failed to clear events: {e}")
         else:
             st.info("No events to clear")
-
-
-# ============================================================================
-# PLAN & BILLING  (Phase 6)
-# ============================================================================
 
 
 # ============================================================================
