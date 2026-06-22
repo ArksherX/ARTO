@@ -7,6 +7,9 @@ Local-first security suite for agentic AI systems, composed of:
 
 Supports **standalone runs**, **opt-in integration**, and a **local Docker Compose stack**.
 
+> **New here? [Run the 10-minute quickstart →](QUICKSTART.md)** Watch VerityFlux block a
+> multi-turn agent hijack that per-request monitoring misses — one command, no API key.
+
 The Streamlit UIs share a small repo-level theme package in `shared/`. Keep the repo layout intact when running one tool locally; do not copy a tool subdirectory by itself unless you also copy `shared/`.
 
 ---

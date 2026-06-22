@@ -157,6 +157,41 @@ class ReasoningInterceptor:
             if pattern in block_lower:
                 violations.append(description)
 
+        # 3b. High-precision critical-intent detectors. Literal substrings above
+        # miss phrasing variants ("ignore ALL PREVIOUS instructions") and whole
+        # classes (exfiltration, destruction, privilege escalation). These
+        # class-level patterns are written to be high-precision: benign agent
+        # reasoning does not describe these actions, so a match is a strong
+        # signal and forces a block below.
+        critical_intent_patterns = [
+            (r"\bexfiltrat", "Reasoning describes data exfiltration"),
+            (r"\b(ssn|social security|credit card|card number|passport|api key|secret key|private key|password|credentials)\b[^.]{0,80}\b(send|e-?mail|email|upload|post|forward|transmit|leak|exfiltrat|to)\b",
+             "Reasoning describes sending sensitive data externally"),
+            (r"\b(send|e-?mail|email|upload|post|forward|transmit|leak)\b[^.]{0,80}\b(ssn|social security|credit card|card number|passport|api key|secret key|private key|password|credentials)\b",
+             "Reasoning describes sending sensitive data externally"),
+            (r"\b(delete|erase|wipe|destroy)\b[^.]{0,25}\b(all|everything|entire|database|production|backups?|records)\b",
+             "Reasoning describes a destructive action"),
+            (r"\b(drop|truncate)\b[^.]{0,30}\btables?\b",
+             "Reasoning describes destroying database tables"),
+            (r"\brm\s+-rf\b", "Reasoning describes a destructive shell command"),
+            (r"\b(grant|give|assign|escalate)\b[^.]{0,30}\b(myself|me|itself|its own)\b[^.]{0,30}\b(admin|administrator|root|superuser|sudo|elevated)\b",
+             "Reasoning describes self privilege-escalation"),
+            (r"\bescalat\w*\b[^.]{0,15}\bprivileg", "Reasoning describes privilege escalation"),
+            (r"\bdisable\b[^.]{0,25}\b(logging|audit|auditing|monitoring|alerting|security)\b",
+             "Reasoning describes disabling security controls"),
+            (r"\bignore\b[^.]{0,40}\b(previous|prior|earlier|above|all)\b[^.]{0,25}\b(instruction|prompt|rule|polic|direction)",
+             "Reasoning describes ignoring prior instructions"),
+            (r"\bdisregard\b[^.]{0,40}\b(previous|prior|system|the|all)\b[^.]{0,25}\b(instruction|prompt|rule|polic)",
+             "Reasoning describes disregarding instructions"),
+            (r"\bskip\b[^.]{0,30}\b(verification|validation|approval|review|safety|checks?)\b",
+             "Reasoning describes skipping verification"),
+        ]
+        critical_intent_hit = False
+        for rgx, description in critical_intent_patterns:
+            if re.search(rgx, block_lower):
+                violations.append(description)
+                critical_intent_hit = True
+
         # Calculate combined risk score
         risk_score = self._calculate_risk(integrity_score, drift_score, len(violations))
         if contamination_score > 0:
@@ -175,6 +210,11 @@ class ReasoningInterceptor:
             risk_score = max(risk_score, self.block_threshold + 2.0)
         elif contamination_findings:
             risk_score = max(risk_score, self.escalate_threshold + 5.0)
+
+        # A clear critical-intent match (exfiltration, destruction, privilege
+        # escalation, instruction-override) is unambiguous — force a block.
+        if critical_intent_hit:
+            risk_score = max(risk_score, self.block_threshold + 5.0)
 
         # Determine action
         action = "allow"

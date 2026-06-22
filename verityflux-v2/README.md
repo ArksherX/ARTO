@@ -1,4 +1,21 @@
-# VerityFlux v2 — AI Security Scanner
+# VerityFlux — a runtime cognitive firewall for agentic AI
+
+**Per-request monitoring catches ~0% of multi-turn agent attacks. VerityFlux watches the whole session and catches them.**
+
+Agentic attacks rarely arrive in a single malicious request. They *accumulate*: each
+turn looks benign, and the agent is steered toward an unsafe action over many steps.
+Guards that judge one request at a time see nothing. VerityFlux intercepts an agent's
+reasoning and tool calls on the live **session trajectory** and blocks the unsafe
+action before it executes — alongside scanning, MCP/protocol integrity, and memory
+poisoning defence.
+
+**→ Watch it block a multi-turn hijack in 10 minutes: [QUICKSTART.md](../QUICKSTART.md)**
+
+> The 0% / 73% figures come from the Accumulation Problem study across 214 multi-turn
+> samples. The quickstart demonstrates the *mechanism* (session-level detection
+> catching a crescendo), not a re-derivation of the population statistic.
+
+---
 
 ## Overview
 

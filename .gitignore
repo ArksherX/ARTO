@@ -34,6 +34,14 @@ CLAUDE.md
 /verityflux-v2/data/
 /vestigia/data/
 
+# Runtime queues / metrics (generated when the services run)
+/tessera/hitl_queue/
+/tessera/metrics/
+/verityflux-v2/hitl_queue/
+/verityflux-v2/metrics/
+/vestigia/hitl_queue/
+/vestigia/metrics/
+
 # Sensitive keys
 /tessera/data/tessera_root_key.json
 /verityflux-v2/data/attestation_key.json

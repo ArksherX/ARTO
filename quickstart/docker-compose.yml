@@ -1,0 +1,45 @@
+# VerityFlux quickstart — one command, no API key.
+#
+#   docker compose -f quickstart/docker-compose.yml up --build \
+#       --abort-on-container-exit --exit-code-from demo
+#
+# Brings up VerityFlux (keyless local mode) and runs a crescendo attack against
+# a sample agent, showing VerityFlux block a multi-turn hijack that per-request
+# monitoring misses. Nothing to configure.
+services:
+
+  verityflux:
+    build:
+      context: ../verityflux-v2
+      dockerfile_inline: |
+        FROM python:3.11-slim
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+            gcc g++ libpq-dev libxml2-dev libxmlsec1-dev libxmlsec1-openssl pkg-config \
+            && rm -rf /var/lib/apt/lists/*
+        WORKDIR /app
+        COPY requirements.txt .
+        RUN pip install --no-cache-dir -r requirements.txt
+        COPY . .
+        CMD ["python", "api/v2/main.py"]
+    image: verityflux-quickstart:local
+    environment:
+      VERITYFLUX_PORT: "8003"
+    ports:
+      - "8003:8003"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8003/health',timeout=3).status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+
+  demo:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+    command: ["bash", "-lc", "pip install --no-cache-dir httpx >/dev/null && python attack_crescendo.py"]
+    environment:
+      VERITYFLUX_URL: "http://verityflux:8003"
+    depends_on:
+      verityflux:
+        condition: service_healthy
