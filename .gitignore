@@ -27,7 +27,15 @@ venv/
 # Local assistant config
 /.claude/
 .claude/
+
+# AI-assistant context docs — local only, never open source
 CLAUDE.md
+claude.md
+**/CLAUDE.md
+**/claude.md
+
+# Proprietary red-team module — local only, never open source
+**/redteam/
 
 # Local app data (generated at runtime)
 /tessera/data/
@@ -92,3 +100,8 @@ requirements.txt
 
 verityflux-v2/multi_tenant/
 vestigia/claude.md
+
+# Generated runtime artifacts (never commit — may contain real audit data)
+/verityflux-v2/attack_test_results.json
+/verityflux-v2/audit_exports/
+/vestigia/web_ui/data/

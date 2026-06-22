@@ -36,7 +36,10 @@ if [[ "${STRICT_MODE,,}" == "true" || "${STRICT_MODE}" == "1" || "${STRICT_MODE,
     export VERITYFLUX_MANIFEST_KEY="${VERITYFLUX_MANIFEST_KEY:-}"
     export VESTIGIA_SECRET_SALT="${VESTIGIA_SECRET_SALT:-}"
 else
-    export TESSERA_SECRET_KEY="${TESSERA_SECRET_KEY:-168595de6449925806d7b448d132a5ec6290cb0ce31f253826c2694586f05c0d21518555e12dc87de7088820e215aa2505008d87d8a64ce03f2cad74d8484b06}"
+    # Generate a fresh signing key per launch if none is provided, rather than
+    # shipping a committed default. Set TESSERA_SECRET_KEY in the environment for
+    # a stable key across restarts.
+    export TESSERA_SECRET_KEY="${TESSERA_SECRET_KEY:-$(python3 -c 'import secrets; print(secrets.token_hex(64))')}"
     export TESSERA_ADMIN_KEY="${TESSERA_ADMIN_KEY:-tessera-demo-key-change-in-production}"
     export VERITYFLUX_API_KEY="${VERITYFLUX_API_KEY:-vf_admin_demo_key}"
     export VERITYFLUX_MCP_TOOL_SECRET="${VERITYFLUX_MCP_TOOL_SECRET:-verityflux-mcp-dev-secret-change-in-production}"
