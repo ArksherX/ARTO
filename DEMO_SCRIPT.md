@@ -179,11 +179,16 @@ reasoning at it.)*
 > the protocol alerts — produced evidence. This is the plane an auditor or a SOC
 > analyst actually lives in."
 
-### 4.1 Integrity first — `Dashboard`
-- Show ledger integrity **valid**, current event counts, recent activity.
+### 4.1 Posture first — `Dashboard`
+- The landing view opens on **Security Posture**: outcome metrics (posture,
+  threats handled, agents governed, **evidence integrity**) and a plain-language
+  **"What ARTO handled"** feed — the routine API noise is filtered out so only
+  real decisions show. The **Export evidence** button is right there in view.
 
-> "The ledger is tamper-evident. Right now it reports valid — that claim is the
-> whole point of an evidence plane."
+> "This is the governance view — what ARTO authorized, enforced, and recorded,
+> in business language. Evidence integrity reads valid: the ledger is
+> tamper-evident, and that claim is the whole point of an evidence plane.
+> One click exports the regulator-ready report."
 
 ### 4.2 The trail — `Audit Trail`
 - Filter to `agent-demo-01` / the session. Show Tessera token events **and**
