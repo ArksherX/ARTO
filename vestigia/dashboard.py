@@ -898,6 +898,56 @@ def render_sidebar():
 # DASHBOARD - From document 2 (working version)
 # ============================================================================
 
+# Deployment label so the console reads as the client's own (set DEPLOYMENT_NAME).
+DEPLOYMENT_NAME = os.getenv("DEPLOYMENT_NAME", "").strip()
+
+# Infrastructure actors that are operational noise, not monitored agents.
+_NOISE_ACTORS = {"api_server", "access_audit", "SYSTEM", "system"}
+
+_EVENT_LABELS = {
+    "REASONING_INTERCEPTED": "Agent reasoning checked",
+    "SESSION_BLOCKED": "Session blocked",
+    "MEMORY_POISON_BLOCKED": "Memory poisoning blocked",
+    "MEMORY_INJECT_BLOCKED": "Memory injection blocked",
+    "MEMORY_INJECT_ATTEMPT": "Memory injection attempt",
+    "TOOL_INTERCEPTED": "Tool call checked",
+    "PROTOCOL_INTEGRITY_ALERT": "MCP protocol violation flagged",
+    "REASONING_A2A_ALERT": "Contaminated agent handoff flagged",
+    "ANOMALY_ALERT": "Anomaly detected",
+    "TOKEN_ISSUED": "Scoped token issued",
+    "DELEGATION_CREATED": "Scoped delegation issued",
+    "delegation_created": "Scoped delegation issued",
+    "token_issued": "Scoped token issued",
+    "token_revoked": "Token revoked",
+}
+
+
+def _humanize_event(action_type):
+    if not action_type:
+        return "Event"
+    if action_type in _EVENT_LABELS:
+        return _EVENT_LABELS[action_type]
+    return str(action_type).replace("_", " ").title()
+
+
+def _is_signal_event(actor_id, action_type, status):
+    """True for security-meaningful events; filters the dashboard's own API
+    polling and routine infrastructure noise out of the headline feed."""
+    at = (action_type or "").upper()
+    stt = (status or "").upper()
+    if "API_REQUEST" in at:
+        return False
+    if (actor_id or "") in _NOISE_ACTORS and "ALERT" not in at:
+        return False
+    if stt in ("BLOCKED", "CRITICAL", "DENIED", "WARNING"):
+        return True
+    for k in ("BLOCK", "ALERT", "INTERCEPT", "REVOK", "DENY", "POISON",
+              "CONTAMINAT", "RUG", "DRIFT", "SANITIZE", "DELEGAT", "PROTOCOL", "TOKEN"):
+        if k in at:
+            return True
+    return False
+
+
 def render_dashboard():
     """Main dashboard with full event display"""
     
@@ -928,56 +978,55 @@ def render_dashboard():
             "Reset or rebuild the ledger if you need a fully pristine canonical integrity state."
         )
     
-    st.title("🏠 Dashboard Overview")
-    st.caption("Phase 5: Anomaly scoring enabled")
-    
+    _env = DEPLOYMENT_NAME or "Monitored environment"
+    st.title(f"🛡️ {_env} · Security Posture")
+    st.caption("Live governance & evidence — every agent action authorized, enforced, and recorded.")
+
     ledger = load_ledger()
-    
+
     if not ledger or not report:
-        st.info("📊 **System Initialized** - Monitoring for events...")
-        
+        st.info("Monitoring is live. No agent activity has been recorded yet.")
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Ledger Status", "⏳ READY")
-        col2.metric("Total Events", "0")
-        col3.metric("Critical Issues", "0")
-        col4.metric("Integrity Checks", st.session_state.watchtower_checks)
-        
+        col1.metric("Posture", "🟢 SECURE")
+        col2.metric("Events recorded", "0")
+        col3.metric("Threats handled", "0")
+        col4.metric("Evidence integrity", "✅ Ready")
         st.markdown("---")
-        st.subheader("🚀 Getting Started")
-        st.markdown("""
-        Watchtower is **actively monitoring** for security events.
-        
-        **To generate events:**
-        1. Open Tessera: http://localhost:8501
-        2. Navigate to "Token Generator"
-        3. Generate a token for `mock_test` agent
-        4. Return here to see the event
-        """)
+        st.caption("Run a workload through the agents and this console fills in live — "
+                   "actions authorized by Tessera, enforced by VerityFlux, recorded here in Vestigia.")
         return
     
-    # Top metrics
+    # Posture summary — read the full ledger once for the headline numbers.
+    try:
+        with open(st.session_state.ledger_path) as _lf:
+            _all_events = json.load(_lf)
+    except Exception:
+        _all_events = []
+    stats = ledger.get_statistics()
+    critical = len(report.get_critical_issues()) if report else 0
+    _threats = sum(1 for e in _all_events
+                   if str(e.get("status", "")).upper() in ("BLOCKED", "CRITICAL", "DENIED", "WARNING"))
+    _agents = {e.get("actor_id") for e in _all_events
+               if e.get("actor_id") and e.get("actor_id") not in _NOISE_ACTORS
+               and "detector" not in (e.get("actor_id") or "") and e.get("actor_id") != "admin"}
+    _secure = bool(report.is_valid) and critical == 0
+
     col1, col2, col3, col4 = st.columns(4)
-    
     with col1:
-        status_emoji = "✅" if report.is_valid else "🚨"
-        status_text = "VALID" if report.is_valid else "INVALID"
-        st.metric("Ledger Status", f"{status_emoji} {status_text}")
-    
+        st.metric("Posture", "🟢 SECURE" if _secure else "🔴 AT RISK")
     with col2:
-        stats = ledger.get_statistics()
-        st.metric("Total Events", stats.get('total_events', 0))
-    
+        st.metric("Threats handled", _threats)
     with col3:
-        critical = len(report.get_critical_issues()) if report else 0
-        st.metric("Critical Issues", critical)
-    
+        st.metric("Agents governed", len(_agents))
     with col4:
-        st.metric("Integrity Checks", st.session_state.watchtower_checks)
+        st.metric("Evidence integrity",
+                  f"✅ {stats.get('total_events', 0)} events" if report.is_valid else "🚨 INVALID")
 
     st.markdown("---")
 
     # Export evidence (CSV / JSON) for regulators / offline review
-    with st.expander("📥 Export evidence"):
+    st.markdown("### 📥 Export evidence")
+    with st.container():
         import csv as _csv, io as _io
         try:
             with open(st.session_state.ledger_path) as _f:
@@ -1004,41 +1053,28 @@ def render_dashboard():
                                use_container_width=True)
         st.caption(f"{len(_all)} tamper-evident ledger entries · for regulator / offline review")
 
-    st.subheader("🧾 Threat Layer Snapshot")
-    report_path = _latest_file(["ops/evidence/**/aivss_report_*.json", "ops/evidence/aivss_report_*.json"])
-    sbom_path = _latest_file(["ops/evidence/**/sbom_*.json", "ops/evidence/sbom_*.json"])
-    readiness_path = None
-
-    report_data = _load_json(report_path) if report_path else None
-    sbom_data = _load_json(sbom_path) if sbom_path else None
-    readiness_text = ""
-    readiness = None
-
-    col_g1, col_g2, col_g3 = st.columns(3)
-
-    with col_g1:
-        st.markdown("**Runtime Threat Summary**")
-        if report_data:
-            max_score, max_severity, gate = _aivss_gate_summary(report_data)
-            st.metric("Max Threat Score", f"{max_score:.1f}", delta=max_severity)
-            st.caption(f"Layer gate: {gate}")
-            st.caption("Identity vetted by Tessera → behavior evaluated by VerityFlux → Vestigia preserves evidence.")
-        else:
-            st.caption("No AIVSS report found.")
-            st.code("python3 ops/aivss_report.py --sbom-path <sbom.json>", language="bash")
-
-    with col_g2:
-        st.markdown("**Supply Chain Evidence**")
-        if sbom_data:
-            st.metric("Components", sbom_data.get("component_count", 0))
-            st.caption(f"SBOM: {sbom_path}")
-        else:
-            st.caption("No SBOM evidence found.")
-            st.code("python3 ops/generate_sbom.py", language="bash")
-
-    with col_g3:
-        st.markdown("**Operator Guidance**")
-        st.caption("Use Tessera, VerityFlux, and Vestigia in concert to prove these threat layers remain contained.")
+    # Advanced threat-layer / supply-chain evidence — operator detail, tucked away.
+    with st.expander("🧾 Advanced — threat-layer & supply-chain evidence"):
+        report_path = _latest_file(["ops/evidence/**/aivss_report_*.json", "ops/evidence/aivss_report_*.json"])
+        sbom_path = _latest_file(["ops/evidence/**/sbom_*.json", "ops/evidence/sbom_*.json"])
+        report_data = _load_json(report_path) if report_path else None
+        sbom_data = _load_json(sbom_path) if sbom_path else None
+        col_g1, col_g2 = st.columns(2)
+        with col_g1:
+            st.markdown("**Runtime threat report (AIVSS)**")
+            if report_data:
+                max_score, max_severity, gate = _aivss_gate_summary(report_data)
+                st.metric("Max Threat Score", f"{max_score:.1f}", delta=max_severity)
+                st.caption(f"Layer gate: {gate}")
+            else:
+                st.caption("Not generated for this run.")
+        with col_g2:
+            st.markdown("**Supply chain (SBOM)**")
+            if sbom_data:
+                st.metric("Components", sbom_data.get("component_count", 0))
+            else:
+                st.caption("Not generated for this run.")
+        st.caption("Identity vetted by Tessera → behavior enforced by VerityFlux → evidence preserved by Vestigia.")
 
     st.markdown("---")
     
@@ -1053,57 +1089,25 @@ def render_dashboard():
     
     st.markdown("---")
     
-    st.subheader("📡 Recent Activity")
-    
-    events = get_recent_events(ledger, limit=10)
-    
-    if events:
-        for event in events:
-            evidence = event.evidence if hasattr(event, 'evidence') else {}
-            
-            if isinstance(evidence, dict):
-                summary = evidence.get('summary', 'No summary')
-                jti = evidence.get('jti', '')
-                anomaly_risk = evidence.get('anomaly_risk')
-                anomaly_signals = evidence.get('anomaly_signals', [])
-            else:
-                summary = str(evidence)[:100]
-                jti = ''
-                anomaly_risk = None
-                anomaly_signals = []
-            
-            status = event.status if hasattr(event, 'status') else 'INFO'
-            
-            if status in ['CRITICAL', 'DENIED']:
-                st.error(f"🔴 **{event.timestamp}** - {event.actor_id}: {event.action_type}")
-            elif status in ['WARNING']:
-                st.warning(f"🟡 **{event.timestamp}** - {event.actor_id}: {event.action_type}")
-            else:
-                st.success(f"🟢 **{event.timestamp}** - {event.actor_id}: {event.action_type}")
-            
-            with st.expander("Details"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown(f"**Actor:** `{event.actor_id}`")
-                    st.markdown(f"**Action:** `{event.action_type}`")
-                    st.markdown(f"**Status:** `{status}`")
-                    if anomaly_risk is not None:
-                        st.markdown(f"**Anomaly Risk:** `{anomaly_risk}`")
-                with col2:
-                    st.markdown(f"**Event ID:** `{event.event_id if hasattr(event, 'event_id') else 'N/A'}`")
-                    if jti:
-                        st.markdown(f"**JTI:** `{jti}`")
-                    if hasattr(event, 'integrity_hash'):
-                        st.markdown(f"**Hash:** `{event.integrity_hash[:16]}...`")
-                
-                st.markdown(f"**Summary:** {summary}")
-                
-                if isinstance(evidence, dict):
-                    if anomaly_signals:
-                        st.markdown(f"**Signals:** `{', '.join(anomaly_signals)}`")
-                    st.json(evidence)
+    st.subheader("🛡️ What ARTO handled")
+    st.caption("Security-relevant agent activity — routine system polling is hidden; full log in Audit Trail.")
+
+    events = get_recent_events(ledger, limit=200)
+    signal = [e for e in events
+              if _is_signal_event(getattr(e, "actor_id", ""), getattr(e, "action_type", ""),
+                                  getattr(e, "status", ""))]
+    if signal:
+        for event in reversed(signal[-10:]):
+            actor = getattr(event, "actor_id", "?")
+            status = (getattr(event, "status", "") or "INFO").upper()
+            ts = str(getattr(event, "timestamp", ""))[:19].replace("T", " ")
+            label = _humanize_event(getattr(event, "action_type", ""))
+            icon = "🔴" if status in ("BLOCKED", "CRITICAL", "DENIED") else ("🟡" if status == "WARNING" else "🟢")
+            st.markdown(f"{icon}&nbsp; **{label}** &nbsp;·&nbsp; `{actor}` &nbsp;·&nbsp; {ts}")
+        st.caption(f"{len(signal)} security event(s) in the recent window · "
+                   "full detail in 🔍 Audit Trail and 🕵️ Forensics")
     else:
-        st.info("No events yet - generate a token in Tessera to see events appear here")
+        st.success("🟢 All clear — no threats detected in the recent window.")
 
 
 # ============================================================================

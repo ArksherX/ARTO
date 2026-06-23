@@ -1736,6 +1736,9 @@ def render_status_badge(status: str):
 def page_dashboard():
     """Main SOC Dashboard"""
     st.title("🛡️ SOC Command Center")
+    st.caption("The verification plane — VerityFlux inspects agent reasoning and tool calls in real time and "
+               "scans agents for vulnerabilities. New here? Open **Scanning & Assessment** to scan a target, "
+               "or **Firewall Activity** to watch live runtime decisions.")
 
     # Get metrics — live API only
     _live_metrics = api_get_live_metrics(st.session_state.api_base_url, st.session_state.vf_api_key)

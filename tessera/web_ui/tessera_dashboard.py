@@ -568,7 +568,9 @@ with st.sidebar:
 
 if mode == "📊 Dashboard":
     st.title("🛡️ Tessera IAM | Operations Center")
-    
+    st.caption("The identity plane — every AI agent gets a scoped, revocable identity. "
+               "New here? Open **Agent Registry** to see who's provisioned, or **Gatekeeper** to test access.")
+
     # Integration badge
     st.markdown("""
     <div class="integration-badge">
@@ -595,9 +597,12 @@ if mode == "📊 Dashboard":
     with col4:
         revoked = len(st.session_state.revocation_list.revoked_tokens)
         st.metric("Revoked Tokens", revoked)
-    
+
+    st.caption("Live token issuance and validation from connected agents is aggregated in the "
+               "**Vestigia** evidence console; these counters reflect this dashboard's own session.")
+
     st.markdown("---")
-    
+
     # Recent activity
     st.subheader("📡 Recent Activity")
     
