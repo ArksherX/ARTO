@@ -1,5 +1,5 @@
 # =============================================================================
-# VerityFlux Enterprise - Kubernetes Namespace and ConfigMaps
+# VerityFlux - Kubernetes Namespace and ConfigMaps
 # =============================================================================
 ---
 apiVersion: v1

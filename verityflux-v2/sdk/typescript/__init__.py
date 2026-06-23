@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - TypeScript SDK
+VerityFlux - TypeScript SDK
 """

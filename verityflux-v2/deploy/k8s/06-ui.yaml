@@ -1,5 +1,5 @@
 # =============================================================================
-# VerityFlux Enterprise - Streamlit UI Deployment
+# VerityFlux - Streamlit UI Deployment
 # =============================================================================
 ---
 apiVersion: apps/v1

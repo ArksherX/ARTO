@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Streamlit Dashboard
+VerityFlux - Streamlit Dashboard
 """

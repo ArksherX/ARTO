@@ -1,5 +1,5 @@
 """
-VerityFlux Enterprise - Framework Integrations
+VerityFlux - Framework Integrations
 
 Integrations for popular AI agent frameworks:
 - LangChain

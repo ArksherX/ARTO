@@ -1,5 +1,5 @@
 """
-VerityFlux Enterprise v3.5
+VerityFlux v3.5
 AI Agent Security Platform
 
 Features:

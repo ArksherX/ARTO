@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - API Version 1
+VerityFlux - API Version 1
 """

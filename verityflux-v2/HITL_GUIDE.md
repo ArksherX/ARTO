@@ -2,7 +2,7 @@
 
 ## Overview
 
-VerityFlux Enterprise includes a complete Human-in-the-Loop system for high-risk AI agent actions.
+VerityFlux includes a complete Human-in-the-Loop system for high-risk AI agent actions.
 
 ## Features
 

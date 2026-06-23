@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Rate Limiting Module
+VerityFlux - Rate Limiting Module
 Protects API endpoints from abuse and ensures fair usage
 
 Features:

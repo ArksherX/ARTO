@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Background Worker
+VerityFlux - Background Worker
 Handles async tasks like scanning, notifications, and maintenance
 
 For air-gapped deployments, this worker processes tasks from a local queue.
@@ -543,7 +543,7 @@ class Scheduler:
 async def main():
     """Main entry point"""
     logger.info("=" * 60)
-    logger.info("VerityFlux Enterprise - Background Worker")
+    logger.info("VerityFlux - Background Worker")
     logger.info("=" * 60)
     
     # Create queue

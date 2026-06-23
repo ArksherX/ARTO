@@ -1,5 +1,5 @@
 """
-VerityFlux Enterprise - SDK Package
+VerityFlux - SDK Package
 
 Provides SDKs and integrations for:
 - Python applications

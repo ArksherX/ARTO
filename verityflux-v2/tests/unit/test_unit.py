@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Unit Tests
+VerityFlux - Unit Tests
 Comprehensive tests for core modules
 """
 

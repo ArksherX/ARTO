@@ -1,5 +1,5 @@
 """
-VerityFlux Enterprise - Security Scanner Module
+VerityFlux - Security Scanner Module
 """
 
 from importlib.util import spec_from_file_location, module_from_spec

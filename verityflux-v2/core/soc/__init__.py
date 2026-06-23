@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - SOC Command Center Module
+VerityFlux - SOC Command Center Module
 """

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - CrewAI Integration
+VerityFlux - CrewAI Integration
 Security controls for CrewAI multi-agent crews
 """
 

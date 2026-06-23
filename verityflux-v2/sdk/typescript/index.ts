@@ -1,5 +1,5 @@
 /**
- * VerityFlux Enterprise - TypeScript/JavaScript SDK
+ * VerityFlux - TypeScript/JavaScript SDK
  * Easy integration for AI agents with the VerityFlux security platform
  * 
  * @example

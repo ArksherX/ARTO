@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Licensing System
+VerityFlux - Licensing System
 Supports both SaaS (Stripe) and On-Premise (License Keys)
 
 Features:

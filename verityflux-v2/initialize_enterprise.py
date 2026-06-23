@@ -59,7 +59,7 @@ def main():
     print(f"  • False Positive Cache: {stats['intent_analyzer']['false_positive_cache_size']}")
     
     print("\n" + "="*70)
-    print("✅ VerityFlux Enterprise Ready!")
+    print("✅ VerityFlux Ready!")
     print("="*70)
     
     # Save firewall instance for web UI

@@ -1,5 +1,5 @@
 """
-VerityFlux Enterprise - Core Package
+VerityFlux - Core Package
 
 This package contains the core functionality of VerityFlux:
 - Authentication & Authorization

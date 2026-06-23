@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Database Module
+VerityFlux - Database Module
 """

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - FastAPI REST API Layer
+VerityFlux - FastAPI REST API Layer
 Comprehensive REST API exposing all platform functionality
 
 Features:
@@ -2017,7 +2017,7 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="VerityFlux Enterprise API",
+    title="VerityFlux API",
     description="AI Agent Security Platform - REST API",
     version="3.5.0",
     docs_url="/docs",
@@ -2114,7 +2114,7 @@ async def require_permission(permission: str):
 async def root():
     """API root - basic info"""
     return {
-        "name": "VerityFlux Enterprise API",
+        "name": "VerityFlux API",
         "version": "3.5.0",
         "status": "operational",
         "docs": "/docs",

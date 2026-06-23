@@ -1,8 +1,8 @@
-# VerityFlux Enterprise - Deployment Guide
+# VerityFlux - Deployment Guide
 
 ## Overview
 
-This guide covers deploying VerityFlux Enterprise in various environments:
+This guide covers deploying VerityFlux in various environments:
 
 - **Docker Compose** - Local development and small deployments
 - **Kubernetes** - Production-grade scalable deployment

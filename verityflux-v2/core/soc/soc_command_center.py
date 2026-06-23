@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - SOC Command Center
+VerityFlux - SOC Command Center
 Comprehensive Security Operations Center for AI Agent Security
 
 Features:

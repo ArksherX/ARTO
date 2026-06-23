@@ -1,4 +1,4 @@
-# VerityFlux Enterprise - Requirements
+# VerityFlux - Requirements
 # AI Agent Security Platform - Complete Dependencies
 
 # =============================================================================

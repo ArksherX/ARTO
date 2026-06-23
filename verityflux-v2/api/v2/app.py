@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Application Factory
+VerityFlux - Application Factory
 Central initialization and dependency injection for all services
 
 This module creates and wires together all application components,
@@ -275,7 +275,7 @@ class ServiceContainer:
             return
         
         logger.info("=" * 60)
-        logger.info("Initializing VerityFlux Enterprise Services")
+        logger.info("Initializing VerityFlux Services")
         logger.info(f"Deployment Mode: {self.config.deployment_mode.value}")
         logger.info(f"Environment: {self.config.environment}")
         logger.info("=" * 60)

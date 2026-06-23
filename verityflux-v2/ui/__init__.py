@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - UI Package
+VerityFlux - UI Package
 """

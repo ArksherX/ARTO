@@ -1,7 +1,7 @@
 {
   "name": "@verityflux/sdk",
   "version": "1.0.0",
-  "description": "VerityFlux Enterprise SDK for AI Agent Security",
+  "description": "VerityFlux SDK for AI Agent Security",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

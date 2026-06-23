@@ -189,7 +189,7 @@ create_init() {
     if [ ! -f "$dir/__init__.py" ]; then
         cat > "$dir/__init__.py" << EOF
 """
-VerityFlux Enterprise - ${module_name}
+VerityFlux - ${module_name}
 """
 EOF
         echo "  ✓ Created: $dir/__init__.py"
@@ -236,7 +236,7 @@ echo ""
 
 cat > "core/__init__.py" << 'EOF'
 """
-VerityFlux Enterprise - Core Package
+VerityFlux - Core Package
 
 This package contains the core functionality of VerityFlux:
 - Authentication & Authorization
@@ -328,7 +328,7 @@ echo ""
 
 cat > "sdk/__init__.py" << 'EOF'
 """
-VerityFlux Enterprise - SDK Package
+VerityFlux - SDK Package
 
 Provides SDKs and integrations for:
 - Python applications
@@ -375,7 +375,7 @@ echo ""
 
 cat > "sdk/integrations/__init__.py" << 'EOF'
 """
-VerityFlux Enterprise - Framework Integrations
+VerityFlux - Framework Integrations
 
 Integrations for popular AI agent frameworks:
 - LangChain
@@ -465,7 +465,7 @@ echo ""
 
 cat > "redteam/__init__.py" << 'EOF'
 """
-VerityFlux Enterprise - Red Team Module
+VerityFlux - Red Team Module
 PROPRIETARY AND CONFIDENTIAL - Copyright (c) 2025 VerityFlux
 
 This module contains VerityFlux's proprietary AI security testing capabilities:
@@ -527,7 +527,7 @@ echo ""
 
 cat > "api/v2/__init__.py" << 'EOF'
 """
-VerityFlux Enterprise - API v2
+VerityFlux - API v2
 
 FastAPI-based REST API with:
 - Authentication (JWT + API Keys)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Streamlit Web UI
+VerityFlux - Streamlit Web UI
 Comprehensive Security Operations Dashboard
 
 Features:
@@ -38,7 +38,7 @@ from shared.theme import inject_css, status_box
 
 # Page configuration
 st.set_page_config(
-    page_title="VerityFlux Enterprise",
+    page_title="VerityFlux",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -3422,7 +3422,7 @@ def page_settings():
     """Settings"""
     st.title("⚙️ Settings")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["General", "Security", "API Keys", "Subscription"])
+    tab1, tab2, tab3 = st.tabs(["General", "Security", "API Keys"])
     
     with tab1:
         st.subheader("General Settings")
@@ -3718,46 +3718,6 @@ def page_settings():
                     else:
                         st.error(f"Key revocation failed: {result.get('error', 'unknown error')}")
     
-    with tab4:
-        st.subheader("Subscription")
-        
-        st.info("**Current Plan:** Professional")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Scans Used", "142 / Unlimited")
-            st.metric("Agents", "24 / 25")
-        with col2:
-            st.metric("Evaluations", "45,230 / 100,000")
-            st.metric("Users", "12 / 50")
-        
-        st.divider()
-        
-        st.write("**Available Plans:**")
-        
-        plans = [
-            {"name": "Startup", "price": "$99/mo", "features": ["50 scans/mo", "5 agents", "10K evaluations"]},
-            {"name": "Professional", "price": "$499/mo", "features": ["Unlimited scans", "25 agents", "100K evaluations"], "current": True},
-            {"name": "Enterprise", "price": "Custom", "features": ["Everything unlimited", "On-premise", "SSO", "Dedicated support"]},
-        ]
-        
-        cols = st.columns(3)
-        for i, plan in enumerate(plans):
-            with cols[i]:
-                st.markdown(f"""
-                    <div style="background: {'#1e3a5f' if plan.get('current') else '#1e1e1e'}; padding: 1.5rem; border-radius: 10px; text-align: center; {'border: 2px solid #007bff;' if plan.get('current') else ''}">
-                        <h3>{plan['name']}</h3>
-                        <p style="font-size: 1.5rem; font-weight: bold;">{plan['price']}</p>
-                        <ul style="text-align: left; padding-left: 1.5rem;">
-                            {''.join([f"<li>{f}</li>" for f in plan['features']])}
-                        </ul>
-                    </div>
-                """, unsafe_allow_html=True)
-                
-                if plan.get('current'):
-                    st.button("Current Plan", disabled=True, key=f"plan_{plan['name']}")
-                else:
-                    st.button(f"Upgrade to {plan['name']}", key=f"plan_{plan['name']}")
 
 
 # =============================================================================
@@ -5516,7 +5476,7 @@ def render_sidebar():
         st.markdown("---")
         
         # Version
-        st.caption("VerityFlux Enterprise v3.5.0")
+        st.caption("VerityFlux")
 
 
 # =============================================================================

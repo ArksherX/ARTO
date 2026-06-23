@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Configuration
+VerityFlux - Configuration
 """

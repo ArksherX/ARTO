@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "=============================================="
-echo "🛡️  VerityFlux Enterprise Installation"
+echo "🛡️  VerityFlux Installation"
 echo "=============================================="
 
 # Check Python version
@@ -32,7 +32,7 @@ echo "✅ Directories created"
 
 # Initialize system
 echo ""
-echo "🚀 Initializing VerityFlux Enterprise..."
+echo "🚀 Initializing VerityFlux..."
 python3 initialize_enterprise.py
 
 if [ $? -ne 0 ]; then

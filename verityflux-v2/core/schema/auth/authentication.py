@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Authentication System
+VerityFlux - Authentication System
 Custom Auth with JWT, Sessions, API Keys, and MFA Support
 
 Features:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - LangChain Integration
+VerityFlux - LangChain Integration
 Seamlessly integrate VerityFlux security controls with LangChain agents
 
 Features:

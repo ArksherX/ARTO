@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Web Dashboard
+VerityFlux - Web Dashboard
 """

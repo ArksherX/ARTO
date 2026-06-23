@@ -973,8 +973,36 @@ def render_dashboard():
     
     with col4:
         st.metric("Integrity Checks", st.session_state.watchtower_checks)
-    
+
     st.markdown("---")
+
+    # Export evidence (CSV / JSON) for regulators / offline review
+    with st.expander("📥 Export evidence"):
+        import csv as _csv, io as _io
+        try:
+            with open(st.session_state.ledger_path) as _f:
+                _all = json.load(_f)
+        except Exception:
+            _all = []
+        _cols = ["timestamp", "actor_id", "action_type", "status", "severity", "event_id", "hash"]
+        _buf = _io.StringIO()
+        _w = _csv.DictWriter(_buf, fieldnames=_cols, extrasaction="ignore")
+        _w.writeheader()
+        for _e in _all:
+            _w.writerow({_k: _e.get(_k, "") for _k in _cols})
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            st.download_button("⬇️ Events (CSV)", _buf.getvalue(),
+                               file_name="vestigia_events.csv", mime="text/csv",
+                               use_container_width=True)
+        with _c2:
+            _pkg = {"ledger_valid": bool(report.is_valid) if report else None,
+                    "total_events": len(_all), "events": _all}
+            st.download_button("⬇️ Evidence package (JSON)",
+                               json.dumps(_pkg, indent=2, default=str),
+                               file_name="vestigia_evidence.json", mime="application/json",
+                               use_container_width=True)
+        st.caption(f"{len(_all)} tamper-evident ledger entries · for regulator / offline review")
 
     st.subheader("🧾 Threat Layer Snapshot")
     report_path = _latest_file(["ops/evidence/**/aivss_report_*.json", "ops/evidence/aivss_report_*.json"])

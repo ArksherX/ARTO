@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Tests Package
+VerityFlux - Tests Package
 """

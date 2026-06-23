@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Security Scanner
+VerityFlux - Security Scanner
 Comprehensive vulnerability assessment for LLMs and AI Agents
 
 Features:

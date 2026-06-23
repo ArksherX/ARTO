@@ -456,7 +456,7 @@ def _interoperability_snapshot(
     }
 
 # Initialize
-app = FastAPI(title="Tessera IAM", version="2.0")
+app = FastAPI(title="Tessera IAM")
 registry = TesseraRegistry()
 token_gen = TokenGenerator(registry)
 revocation = RevocationList()

@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Python SDK
+VerityFlux - Python SDK
 """

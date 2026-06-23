@@ -1,4 +1,4 @@
-# VerityFlux Enterprise - Quick Start Guide
+# VerityFlux - Quick Start Guide
 
 ## Installation
 ```bash

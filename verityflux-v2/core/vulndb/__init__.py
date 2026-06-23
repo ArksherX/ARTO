@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Vulnerability Database Module
+VerityFlux - Vulnerability Database Module
 """

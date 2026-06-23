@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Unit Tests
+VerityFlux - Unit Tests
 """

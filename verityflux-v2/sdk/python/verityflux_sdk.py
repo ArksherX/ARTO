@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Python SDK
+VerityFlux - Python SDK
 Easy integration for AI agents with the VerityFlux security platform
 
 Usage:

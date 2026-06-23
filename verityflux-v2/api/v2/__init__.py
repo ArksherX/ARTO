@@ -1,5 +1,5 @@
 """
-VerityFlux Enterprise - API v2
+VerityFlux - API v2
 
 FastAPI-based REST API with:
 - Authentication (JWT + API Keys)

@@ -1,6 +1,6 @@
 # Third-Party Licenses
 
-VerityFlux Enterprise uses the following third-party components. This document
+VerityFlux uses the following third-party components. This document
 provides attribution and license information as required by each project.
 
 ---

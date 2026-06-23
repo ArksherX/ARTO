@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Observability Module
+VerityFlux - Observability Module
 Prometheus metrics, health checks, and telemetry
 
 This module provides:

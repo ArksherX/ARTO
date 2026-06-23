@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Human-in-the-Loop (HITL) System
+VerityFlux - Human-in-the-Loop (HITL) System
 Comprehensive approval workflow system for AI agent oversight
 
 Features:

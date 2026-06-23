@@ -1,5 +1,5 @@
 # =============================================================================
-# VerityFlux Enterprise - PostgreSQL with TimescaleDB
+# VerityFlux - PostgreSQL with TimescaleDB
 # =============================================================================
 ---
 apiVersion: v1

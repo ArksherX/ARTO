@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Integration Tests
+VerityFlux - Integration Tests
 """

@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Human-in-the-Loop Module
+VerityFlux - Human-in-the-Loop Module
 """

@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Schema Definitions
+VerityFlux - Schema Definitions
 """

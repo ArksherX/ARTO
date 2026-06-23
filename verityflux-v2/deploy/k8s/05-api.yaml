@@ -1,5 +1,5 @@
 # =============================================================================
-# VerityFlux Enterprise - API Server Deployment
+# VerityFlux - API Server Deployment
 # =============================================================================
 ---
 apiVersion: apps/v1

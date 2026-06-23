@@ -1,4 +1,4 @@
-# VerityFlux Enterprise - Production Dockerfile
+# VerityFlux - Production Dockerfile
 # Optimized for air-gapped deployments
 
 # =============================================================================

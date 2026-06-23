@@ -75,7 +75,7 @@ class VestigiaBridge:
         # Create log if it doesn't exist
         if not Path(self.audit_log).exists():
             with open(self.audit_log, 'w') as f:
-                f.write(f"# Sovereign Security Suite - Shared Audit Log\n")
+                f.write(f"# ARTO Security Framework - Shared Audit Log\n")
                 f.write(f"# Started: {datetime.utcnow().isoformat()}\n")
     
     def log_event(self, event_type: str, agent_id: str, tool: str, status: str, details: str = ""):
@@ -534,7 +534,7 @@ with st.sidebar:
     st.markdown("---")
     
     # Integration status
-    st.markdown("**🔗 Suite Integration**")
+    st.markdown("**🔗 ARTO Integration**")
     audit_log = resolve_suite_audit_log_path()
     if suite_integration_active():
         st.success("✅ Vestigia Connected")
@@ -572,7 +572,7 @@ if mode == "📊 Dashboard":
     # Integration badge
     st.markdown("""
     <div class="integration-badge">
-    <strong>🔗 Suite Integration Active</strong><br>
+    <strong>🔗 ARTO Integration Active</strong><br>
     <small>All events are logged to Vestigia audit trail</small>
     </div>
     """, unsafe_allow_html=True)
@@ -1110,9 +1110,9 @@ if st.session_state.auto_refresh:
 st.markdown("---")
 col1, col2 = st.columns(2)
 with col1:
-    st.caption("Tessera IAM v2.0 | Zero-Trust Identity for AI Agents")
+    st.caption("Tessera IAM | Zero-Trust Identity for AI Agents")
 with col2:
     if suite_integration_active():
-        st.caption(f"✅ Integrated with Sovereign Security Suite")
+        st.caption(f"✅ Integrated with ARTO Security Framework")
     else:
         st.caption("⚠️ Running in standalone mode")

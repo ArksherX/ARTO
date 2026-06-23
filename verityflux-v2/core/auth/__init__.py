@@ -1,3 +1,3 @@
 """
-VerityFlux Enterprise - Authentication Module
+VerityFlux - Authentication Module
 """

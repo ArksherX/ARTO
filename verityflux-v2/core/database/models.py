@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Database Models
+VerityFlux - Database Models
 PostgreSQL + TimescaleDB with Multi-Tenancy Support
 
 This module defines all database models for:

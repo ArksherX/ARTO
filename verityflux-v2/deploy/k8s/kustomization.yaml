@@ -1,5 +1,5 @@
 # =============================================================================
-# VerityFlux Enterprise - Kustomization
+# VerityFlux - Kustomization
 # =============================================================================
 #
 # Deploy with: kubectl apply -k deploy/k8s/

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - Database Migrations
+VerityFlux - Database Migrations
 Alembic configuration and initial migration
 
 This module provides database schema management using Alembic.

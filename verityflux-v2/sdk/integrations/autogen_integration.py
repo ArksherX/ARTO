@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - AutoGen Integration
+VerityFlux - AutoGen Integration
 Security controls for Microsoft AutoGen multi-agent systems
 
 Features:

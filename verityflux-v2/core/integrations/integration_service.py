@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-VerityFlux Enterprise - External Integrations
+VerityFlux - External Integrations
 Real integrations with Slack, Jira, PagerDuty, Twilio, Email, and Webhooks
 
 Features:
