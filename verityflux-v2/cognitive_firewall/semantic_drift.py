@@ -8,6 +8,7 @@ over 10+ reasoning steps until destructive action looks "logical".
 
 from typing import List, Dict, Any
 import re
+import zlib
 import numpy as np
 
 class SemanticDriftDetector:
@@ -110,7 +111,12 @@ class SemanticDriftDetector:
         for i, (category, keywords) in enumerate(categories.items()):
             embedding[i] = sum(1 for word in words if word in keywords)
         for word in words:
-            embedding[len(categories) + (hash(word) % lexical_buckets)] += 1.0
+            # Stable hash: Python's builtin hash() is randomized per process
+            # (PYTHONHASHSEED), which made the drift score — and thus borderline
+            # allow/escalate verdicts — non-reproducible across restarts. crc32
+            # is deterministic, so identical reasoning always scores the same.
+            bucket = zlib.crc32(word.encode("utf-8")) % lexical_buckets
+            embedding[len(categories) + bucket] += 1.0
         
         # Normalize
         norm = np.linalg.norm(embedding)
