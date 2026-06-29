@@ -37,6 +37,12 @@ export MLRT_VESTIGIA_API_KEY="$VESTIGIA_API_KEY"
 export TESSERA_REQUIRE_DPOP=true
 export TESSERA_REQUIRE_MEMORY_BINDING=true
 export TESSERA_REQUIRE_ACTION_SIGNATURE=true
+
+# Close unauthenticated agent registration / token issuance (see Notes).
+export TESSERA_REQUIRE_REGISTRATION_AUTH=true
+
+# Refuse to serve the evidence API if no API key is set, rather than allow-all.
+export VESTIGIA_FAIL_CLOSED=true
 ```
 
 ## Optional But Common
@@ -104,3 +110,6 @@ Strict preflight now checks:
 - `TESSERA_TENANT_SCOPED_REGISTRY=true` stores agent registry records under tenant-specific directories while preserving a unified in-memory view.
 - `TESSERA_ENFORCE_TENANT_SCOPE=true` requires tenant-scoped agent queries on Tessera admin/listing surfaces so tenant data is not returned globally by default.
 - `VESTIGIA_TENANT_SCOPED_STORAGE=true` stores access-audit and risk-history file data under tenant-specific directories when multi-tenant mode is enabled.
+- `TESSERA_REQUIRE_REGISTRATION_AUTH=true` requires the admin bearer key for `/agents/register` and `/tokens/request`. Without it, those endpoints are open and anyone who can reach the API can self-register a broadly-scoped agent and mint valid tokens — bypassing scoped authority. Enable in any environment where the Tessera API is network-reachable. Default off so local/demo self-registration keeps working.
+- `VESTIGIA_FAIL_CLOSED=true` makes the evidence API return `503` when `VESTIGIA_API_KEY` is unset, instead of allowing all requests ("development mode"). Enable it so a deploy that forgets to set the key cannot silently run the audit/evidence API wide open. Always set `VESTIGIA_API_KEY` as well.
+- Vestigia's Merkle witness is on by default and detects in-place tampering and full-ledger rewrites; for rewrite-resistance against an attacker with write access to the data volume, configure an off-box external anchor rather than relying on the local witness file alone.
