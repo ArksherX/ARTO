@@ -543,6 +543,18 @@ def verify_admin(authorization: Optional[str] = Header(None)):
     return True
 
 
+def _registration_auth_required() -> bool:
+    return os.getenv("TESSERA_REQUIRE_REGISTRATION_AUTH", "false").lower() in ("1", "true", "yes")
+
+
+def _require_registration_auth(authorization: Optional[str]) -> None:
+    """Opt-in (TESSERA_REQUIRE_REGISTRATION_AUTH): require the admin bearer key for
+    agent registration and token issuance. Closes unauthenticated self-registration
+    / token-minting. Default off, so the demo self-registration flow is unchanged."""
+    if _registration_auth_required():
+        verify_admin(authorization)
+
+
 def _tenant_scope_enforced() -> bool:
     return os.getenv("TESSERA_ENFORCE_TENANT_SCOPE", "false").lower() in ("1", "true", "yes")
 
@@ -659,8 +671,9 @@ class AgentRegisterRequest(BaseModel):
 
 
 @app.post("/agents/register")
-def register_agent(req: AgentRegisterRequest):
+def register_agent(req: AgentRegisterRequest, authorization: Optional[str] = Header(None)):
     """Register a new agent or update an existing one (idempotent)."""
+    _require_registration_auth(authorization)
     try:
         agent = registry.register_agent(
             agent_id=req.agent_id,
@@ -939,8 +952,10 @@ class TokenRequest(BaseModel):
     role: Optional[str] = None
 
 @app.post("/tokens/request")
-def request_token(req: TokenRequest, request: Request, _: bool = Header(None)):
+def request_token(req: TokenRequest, request: Request, _: bool = Header(None),
+                  authorization: Optional[str] = Header(None)):
     """Generate token"""
+    _require_registration_auth(authorization)
     try:
         requested_tool = req.tool or req.tool_name
         if not requested_tool:

@@ -1,6 +1,20 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+import re
+
+# Prompt-injection patterns for content the agent INGESTS (tool results,
+# retrieved/RAG chunks, memory). Run against a de-obfuscated copy too, so
+# leetspeak/spacing variants don't slip through.
+_CONTEXT_INJECTION_PATTERNS = [re.compile(p, re.I) for p in [
+    r"\b(ignore|disregard|forget|override|bypass)\b\s+(?:all\s+|the\s+|any\s+|every\s+)?(?:previous|prior|earlier|above|preceding|foregoing)\b",
+    r"\bsystem\s+prompt\b",
+    r"\byou are now\b|\bact as (?:a |an )?(?:dan|jailbroken|unrestricted|admin)",
+    r"\b(new|updated)\s+(?:system\s+)?(?:policy|instruction|directive)\b",
+    r"\b(send|forward|upload|email|post|exfiltrat|transmit)\b[^.\n]{0,50}\b(https?://|ftp://|@[\w.-]+\.[a-z]{2,}|external|attacker|collector)",
+    r"\b(safety|guardrail|filter|moderation|approval)s?\b[^.\n]{0,20}\b(disabled|turned off|bypassed|removed|off)\b",
+    r"\b(disabled|turned off|bypassed|removed)\b[^.\n]{0,20}\b(safety|guardrail|filter|moderation|approval)",
+]]
 
 
 @dataclass
@@ -106,17 +120,22 @@ class MCPSentry:
         )
 
     def inspect_context(self, context_data: dict) -> dict:
-        """Inspect context data for risks."""
-        risk_score = 0
+        """Inspect ingested/untrusted context (tool results, retrieved/RAG content,
+        memory) for embedded prompt injection. Patterns run against a de-obfuscated
+        copy too, so leetspeak/spacing variants don't slip through. Replaces the
+        earlier 3-literal check, which missed most injection variants and
+        false-positived on a benign 'override'."""
+        from .reasoning_interceptor import _deobfuscate
+        content = str(context_data)
+        norm = _deobfuscate(content)
         issues = []
-
-        content = str(context_data).lower()
-        if any(p in content for p in ["system prompt", "ignore previous", "override"]):
-            risk_score = 60
-            issues.append("Potential injection in context")
+        for rgx in _CONTEXT_INJECTION_PATTERNS:
+            if rgx.search(content) or rgx.search(norm):
+                issues.append("Potential prompt injection in ingested context")
+                break
 
         return {
-            "risk_score": risk_score,
+            "risk_score": 60 if issues else 0,
             "status": "flagged" if issues else "clean",
             "issues": issues,
         }

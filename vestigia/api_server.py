@@ -441,7 +441,14 @@ def _require_api_key(request: Request, authorization: Optional[str] = Header(Non
         return ctx
 
     if not API_KEY:
-        # No key configured -- allow all requests (development mode)
+        # No key configured. Opt-in VESTIGIA_FAIL_CLOSED refuses service rather
+        # than silently allowing all requests, so a misconfigured production
+        # deploy can't run the evidence API wide open. Default off = dev mode.
+        if os.getenv("VESTIGIA_FAIL_CLOSED", "false").lower() in ("1", "true", "yes"):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Server misconfigured: no VESTIGIA_API_KEY set and fail-closed mode is enabled",
+            )
         return None
     if authorization is None:
         raise HTTPException(
