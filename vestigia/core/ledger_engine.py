@@ -444,7 +444,13 @@ class VestigiaLedger:
                 hsm_client = get_hsm_from_env()
             except Exception:
                 hsm_client = None
-            self.witness = MerkleWitness(hsm_client=hsm_client)
+            # Use a dedicated file for the structured (optionally HSM-signed)
+            # witness so it is not clobbered by the plain last-hash written to
+            # data/witness.hash by _witness_state().
+            self.witness = MerkleWitness(
+                witness_path=str(self.ledger_path.parent / "merkle_witness.json"),
+                hsm_client=hsm_client,
+            )
         
         # Initialize external anchoring
         if enable_external_anchor and os.getenv('VESTIGIA_ENABLE_ANCHORING', 'true').lower() == 'true':
@@ -763,7 +769,28 @@ class VestigiaLedger:
             
             if entry['integrity_hash'] != expected_hash:
                 return False, i
-        
+
+        # Out-of-band witness cross-check. A full-ledger rewrite can recompute a
+        # self-consistent hash chain (especially when no secret salt is set), so
+        # the chain check alone cannot detect it. Verify recorded Merkle witnesses
+        # (anchored at CRITICAL events / every 100 entries) against the current
+        # ledger: a witness whose entry_count exceeds the ledger length indicates
+        # truncation; a witness whose anchored root no longer matches the ledger
+        # entry at that position indicates a rewrite.
+        witness = getattr(self, "witness", None)
+        if self.enable_merkle_witness and witness is not None:
+            for w in witness._load_witness().get("witnesses", []):
+                k = w.get("entry_count")
+                if not isinstance(k, int) or k <= 0:
+                    continue
+                if k > len(trail):
+                    return False, k
+                ok, _reason = witness.verify_against_witness(
+                    trail[k - 1]["integrity_hash"], k
+                )
+                if not ok:
+                    return False, k
+
         return True, None
 
     def repair_integrity(self, strategy: str = "truncate") -> Dict[str, Any]:

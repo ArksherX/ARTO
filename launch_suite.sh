@@ -3,7 +3,7 @@ set -euo pipefail
 
 # --- CONFIGURATION ---
 RUN_MODE=${MODE:-"prod"}
-ROOT_DIR="${ROOT_DIR:-/home/arksher/ml-redteam}"
+ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 SHARED_LOG="${ROOT_DIR}/shared_state/shared_audit.log"
 STRICT_MODE="${SUITE_STRICT_MODE:-false}"
 RUN_DIR="${ROOT_DIR}/run"

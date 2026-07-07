@@ -16,7 +16,7 @@ services:
       VESTIGIA_PORT: "8002"
       VESTIGIA_API_KEY: "dev-vestigia-key"
     ports:
-      - "18002:8002"
+      - "8002:8002"
     depends_on:
       - redis
 
@@ -32,7 +32,7 @@ services:
       MLRT_VESTIGIA_INGEST_URL: "http://vestigia-api:8002/events"
       MLRT_VESTIGIA_API_KEY: "dev-vestigia-key"
     ports:
-      - "18001:8001"
+      - "8001:8001"
     depends_on:
       - vestigia-api
       - redis
@@ -49,7 +49,7 @@ services:
       MLRT_VESTIGIA_INGEST_URL: "http://vestigia-api:8002/events"
       MLRT_VESTIGIA_API_KEY: "dev-vestigia-key"
     ports:
-      - "18003:8003"
+      - "8003:8003"
     depends_on:
       - vestigia-api
 
@@ -64,7 +64,7 @@ services:
       PYTHONPATH: "/"
     command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run web_ui/tessera_dashboard.py --server.headless true"]
     ports:
-      - "18501:8501"
+      - "8501:8501"
     depends_on:
       - tessera-api
 
@@ -79,7 +79,7 @@ services:
       PYTHONPATH: "/"
     command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run dashboard.py --server.headless true"]
     ports:
-      - "18502:8502"
+      - "8502:8502"
     depends_on:
       - vestigia-api
 
@@ -94,7 +94,7 @@ services:
       PYTHONPATH: "/"
     command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run ui/streamlit/app.py --server.headless true"]
     ports:
-      - "18503:8503"
+      - "8503:8503"
     depends_on:
       - verityflux-api
 

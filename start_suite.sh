@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR="${ROOT_DIR:-/home/arksher/ml-redteam}"
+ROOT_DIR="${ROOT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 
 # Prefer the maintained launcher that sets integrated suite defaults.
 if [[ -x "${ROOT_DIR}/launch_suite.sh" ]]; then

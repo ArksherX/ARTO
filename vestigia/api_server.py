@@ -12,6 +12,7 @@ import uuid
 import json
 import base64
 import hashlib
+import hmac
 from datetime import datetime, UTC, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -456,7 +457,7 @@ def _require_api_key(request: Request, authorization: Optional[str] = Header(Non
             detail="Missing Authorization header",
         )
     scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or token != API_KEY:
+    if scheme.lower() != "bearer" or not hmac.compare_digest(token, API_KEY or ""):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing Bearer token",
@@ -479,7 +480,7 @@ def _require_permission(permission: str):
 def _require_platform_admin(x_platform_admin: Optional[str] = Header(None, alias="X-Platform-Admin")):
     if not PLATFORM_ADMIN_KEY:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Platform admin key not configured")
-    if x_platform_admin != PLATFORM_ADMIN_KEY:
+    if not x_platform_admin or not hmac.compare_digest(x_platform_admin, PLATFORM_ADMIN_KEY):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid platform admin key")
 
 

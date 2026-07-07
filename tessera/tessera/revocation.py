@@ -63,7 +63,9 @@ class RevocationList:
                     "revoked_at": datetime.utcnow().isoformat(),
                     "reason": reason
                 })
-                ttl_seconds = int(ttl) if ttl else 3600
+                # Revocation must outlive the token; the file set is the durable
+                # source of truth and Redis is only a fast cache. Default long.
+                ttl_seconds = int(ttl) if ttl else 7 * 24 * 3600
                 self.redis.setex(key, ttl_seconds, payload)
             except Exception:
                 pass
@@ -73,16 +75,28 @@ class RevocationList:
         self.revoke(jti, ttl=ttl, reason=reason)
     
     def is_revoked(self, jti: str) -> bool:
-        """Check if a token is revoked"""
+        """Check if a token is revoked.
+
+        The durable file-backed set is authoritative: once revoked, a token
+        stays revoked regardless of Redis cache expiry. Redis is consulted only
+        as a fast path for tokens not already in the local set.
+        """
+        if jti in self.revoked_tokens:
+            return True
         if self.redis:
             try:
                 return self.redis.exists(f"tessera:revoked:{jti}") > 0
             except Exception:
                 pass
-        return jti in self.revoked_tokens
+        return False
     
     def unrevoke(self, jti: str):
-        """Remove a token from revocation list"""
+        """Remove a token from revocation list (file set and Redis cache)."""
         if jti in self.revoked_tokens:
             self.revoked_tokens.remove(jti)
             self._save_revocations()
+        if self.redis:
+            try:
+                self.redis.delete(f"tessera:revoked:{jti}")
+            except Exception:
+                pass

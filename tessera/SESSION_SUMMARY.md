@@ -154,6 +154,14 @@ Implemented scope-narrowing inter-agent token delegation for the Arto Security S
 5. Gatekeeper validates delegation chains on access: checks depth <= max, scope intersection valid.
 6. Delegation events emitted to Vestigia: `DELEGATION_CREATED`, `DELEGATION_VALIDATED`.
 
+> **Enforcement boundary (clarified 2026-07-07).** What the gatekeeper enforces
+> today is *chain-level*: delegation depth ≤ max, and each link's `scopes_granted`
+> must be a subset of its parent — so a delegated token can never widen authority
+> beyond its parent. Per-operation enforcement of a scope *within* a single tool
+> (e.g. blocking a write when only `read` was delegated) is **not yet enforced at
+> the gatekeeper**; it is tracked as a roadmap item behind an opt-in flag
+> (`TESSERA_ENFORCE_DELEGATION_SCOPES`, default off). Design: `tessera/DELEGATION_SCOPE_MODEL.md`.
+
 ### Vestigia Integration
 New ActionTypes added to Vestigia ledger for delegation audit trail:
 - `DELEGATION_CREATED` — logged when a delegated token is issued

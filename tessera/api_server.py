@@ -538,7 +538,8 @@ if _strict_prod_mode():
 def verify_admin(authorization: Optional[str] = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing authorization")
-    if authorization.replace("Bearer ", "") != ADMIN_KEY:
+    provided = authorization.removeprefix("Bearer ")
+    if not hmac.compare_digest(provided, ADMIN_KEY or ""):
         raise HTTPException(403, "Invalid admin key")
     return True
 
@@ -1473,6 +1474,22 @@ def access_validate(req: AccessValidate, request: Request):
             "tool": req.tool,
             "signature_valid": False,
             "signature_key_id": None,
+            "action_hash": action_hash,
+        }
+
+    if req.action_signature and not (signature_result and signature_result.get("valid")):
+        _record_denial(req.agent_id)
+        return {
+            "decision": "deny_identity",
+            "tessera_decision": "deny_identity",
+            "tessera_reason": "Invalid action signature",
+            "verityflux_risk": 0.0,
+            "verityflux_reason": "Invalid action signature",
+            "risk_breakdown": None,
+            "agent_id": req.agent_id,
+            "tool": req.tool,
+            "signature_valid": False,
+            "signature_key_id": req.key_id,
             "action_hash": action_hash,
         }
 

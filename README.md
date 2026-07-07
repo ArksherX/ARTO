@@ -142,9 +142,9 @@ docker compose -f docker-compose.suite.yml --profile ui up verityflux-api verity
 The UI services mount `./shared:/shared:ro` and set `PYTHONPATH=/` so the shared open-source theme is available inside containers.
 
 Local Docker host ports (current mapping):
-- Tessera UI: **18501** | API: **18001**
-- Vestigia UI: **18502** | API: **18002**
-- VerityFlux UI: **18503** | API: **18003**
+- Tessera UI: **8501** | API: **8001**
+- Vestigia UI: **8502** | API: **8002**
+- VerityFlux UI: **8503** | API: **8003**
 - Redis: **16379** → container **6379**
 
 ---
