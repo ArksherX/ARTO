@@ -10,6 +10,10 @@ Supports **standalone runs**, **opt-in integration**, and a **local Docker Compo
 > **New here? [Run the 10-minute quickstart →](QUICKSTART.md)** Watch VerityFlux block a
 > multi-turn agent hijack that per-request monitoring misses — one command, no API key.
 
+> **See it secure a real deployment:** a fintech scenario — loan, customer, fraud, and
+> compliance agents — running the full ARTO suite end to end.
+> [Watch the demo →](https://youtu.be/5SfjVTf6Qg4)
+
 The Streamlit UIs share a small repo-level theme package in `shared/`. Keep the repo layout intact when running one tool locally; do not copy a tool subdirectory by itself unless you also copy `shared/`.
 
 ---
