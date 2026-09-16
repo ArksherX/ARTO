@@ -9,6 +9,11 @@ from tessera.token_generator import TokenGenerator
 def test_generate_and_validate_token():
     os.environ["TESSERA_SECRET_KEY"] = "z" * 64
     registry = TesseraRegistry()
+    # generate_token() correctly refuses to issue a token for an
+    # unregistered agent (token_generator.py: "Verify agent exists" ->
+    # returns None) -- this test never registered "mock_test" in the
+    # first place, in any commit. Register it before requesting a token.
+    registry.register_agent("mock_test", owner="test_owner", allowed_tools=["read_csv"])
     token_gen = TokenGenerator(registry)
 
     private_key = ec.generate_private_key(ec.SECP256R1())
@@ -35,6 +40,7 @@ def test_token_includes_nonce_when_enabled():
     os.environ["TESSERA_SECRET_KEY"] = "y" * 64
     os.environ["TESSERA_INCLUDE_NONCE"] = "true"
     registry = TesseraRegistry()
+    registry.register_agent("mock_test", owner="test_owner", allowed_tools=["read_csv"])
     token_gen = TokenGenerator(registry)
     private_key = ec.generate_private_key(ec.SECP256R1())
     public_key = private_key.public_key().public_bytes(

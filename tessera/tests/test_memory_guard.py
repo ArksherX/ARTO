@@ -21,6 +21,9 @@ def _public_key():
 def test_memory_guard_allows_and_denies():
     os.environ["TESSERA_SECRET_KEY"] = "z" * 64
     registry = TesseraRegistry()
+    # generate_token() correctly refuses to issue a token for an
+    # unregistered agent -- this test never registered "mock_test" itself.
+    registry.register_agent("mock_test", owner="test_owner", allowed_tools=["read_csv"])
     token_gen = TokenGenerator(registry)
     session_store = SessionStateStore()
 

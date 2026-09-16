@@ -18,7 +18,15 @@ def _public_key():
 
 def test_gatekeeper_allows_valid_token():
     os.environ["TESSERA_SECRET_KEY"] = "z" * 64
+    # DPoP proof-of-possession is required by default (TESSERA_REQUIRE_DPOP);
+    # this test is about basic ALLOW/DENY decision logic, not DPoP mechanics
+    # (which test_dpop_validation.py already covers directly), so disable it
+    # here the same way TESSERA_INCLUDE_NONCE is toggled per-test below.
+    os.environ["TESSERA_REQUIRE_DPOP"] = "false"
     registry = TesseraRegistry()
+    # generate_token() correctly refuses to issue a token for an unregistered
+    # agent -- this test never registered "mock_test" itself.
+    registry.register_agent("mock_test", owner="test_owner", allowed_tools=["read_csv"])
     token_gen = TokenGenerator(registry)
     gatekeeper = Gatekeeper(token_gen, RevocationList(), registry=registry)
 
@@ -36,7 +44,9 @@ def test_gatekeeper_allows_valid_token():
 def test_gatekeeper_denies_replay_nonce():
     os.environ["TESSERA_SECRET_KEY"] = "z" * 64
     os.environ["TESSERA_INCLUDE_NONCE"] = "true"
+    os.environ["TESSERA_REQUIRE_DPOP"] = "false"
     registry = TesseraRegistry()
+    registry.register_agent("mock_test", owner="test_owner", allowed_tools=["read_csv"])
     token_gen = TokenGenerator(registry)
     gatekeeper = Gatekeeper(token_gen, RevocationList(), registry=registry)
 

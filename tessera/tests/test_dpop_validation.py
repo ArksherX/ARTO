@@ -27,6 +27,9 @@ def _dpop_proof(private_key, url: str, method: str = "POST") -> str:
 def test_dpop_proof_validation():
     os.environ["TESSERA_SECRET_KEY"] = "z" * 64
     registry = TesseraRegistry()
+    # generate_token() correctly refuses to issue a token for an
+    # unregistered agent -- this test never registered "mock_test" itself.
+    registry.register_agent("mock_test", owner="test_owner", allowed_tools=["read_csv"])
     token_gen = TokenGenerator(registry)
 
     private_key = ec.generate_private_key(ec.SECP256R1())
