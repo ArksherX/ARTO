@@ -190,7 +190,7 @@ pip install e2b-code-interpreter
 
 ## 📞 Contact
 
-**Author**: Miracle Abiodun Owolabi (Arksher)
+**Author**: Miracle Owolabi (Arksher)
 **Email**: Owolabimiracle@gmail.com
 **GitHub**: [VerityFlux 2.0 Repository]
 
