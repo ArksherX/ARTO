@@ -4459,6 +4459,7 @@ async def track_session_interaction(session_id: str, req: TrackInteractionReques
         "is_crescendo": result.is_crescendo,
         "explanation": result.explanation,
         "alert_level": result.alert_level,
+        "turning_point_flagged": result.turning_point_flagged,
     }
 
 @app.get("/api/v2/session/{session_id}/state", tags=["Enterprise"])
@@ -5089,6 +5090,7 @@ async def evaluate_action(req: EvaluateActionRequest):
             "drift_score": track_result.drift_score,
             "is_crescendo": track_result.is_crescendo,
             "alert_level": track_result.alert_level,
+            "turning_point_flagged": track_result.turning_point_flagged,
         }
         verdict["modules_run"].append("session_drift_tracker")
         if track_result.is_crescendo:

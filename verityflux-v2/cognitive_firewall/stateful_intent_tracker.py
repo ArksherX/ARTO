@@ -7,12 +7,20 @@ attacks and gradual goal manipulation. Maintains per-session state
 with configurable turn windows.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 from datetime import datetime, UTC
 from collections import defaultdict
 
 from .semantic_drift import SemanticDriftDetector
+
+try:
+    from trajectory_metrics import TrajectoryTracker as _DecayDeltaTracker
+except ImportError:  # pragma: no cover - optional dependency, additive only
+    _DecayDeltaTracker = None
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -23,6 +31,7 @@ class TrackingResult:
     is_crescendo: bool  # True if drift is accelerating
     explanation: str
     alert_level: str  # "normal", "elevated", "critical"
+    turning_point_flagged: bool = False  # decay-delta turning-point verdict (additive; see trajectory_metrics)
 
 
 @dataclass
@@ -37,6 +46,7 @@ class SessionState:
     original_goal: Optional[str] = None
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     last_updated: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    decay_delta_tracker: Optional[Any] = field(default=None, repr=False)
 
 
 @dataclass
@@ -66,10 +76,29 @@ class StatefulIntentTracker:
         window_size: int = 20,
         elevated_threshold: float = 0.25,
         critical_threshold: float = 0.40,
+        escalation_store: Optional[Any] = None,
+        escalation_window_seconds: float = 900.0,
     ):
+        """
+        Args:
+            escalation_store: optional escalation_contract.EscalationContractStore
+                (or anything exposing the same .open() signature). When
+                provided, a flagged turning point opens a contract there
+                instead of only being recorded in this tracker's own state.
+                Left as a duck-typed optional dependency, not a hard import
+                -- VerityFlux stays decoupled from whatever plane (Tessera
+                or otherwise) the store is wired to enforce consequences
+                through; this tracker only knows it opened a contract, not
+                what happens if nobody acknowledges it.
+            escalation_window_seconds: how long an opened contract stays
+                pending before whatever consequence the store is configured
+                with fires. Default 15 minutes.
+        """
         self.window_size = window_size
         self.elevated_threshold = elevated_threshold
         self.critical_threshold = critical_threshold
+        self.escalation_store = escalation_store
+        self.escalation_window_seconds = escalation_window_seconds
         self.drift_detector = SemanticDriftDetector()
         self._sessions: Dict[str, SessionState] = {}
 
@@ -80,6 +109,7 @@ class StatefulIntentTracker:
         user_input: str,
         agent_response: str,
         tool_calls: Optional[List[Dict[str, Any]]] = None,
+        subject_token: Optional[str] = None,
     ) -> TrackingResult:
         """
         Track a single interaction within a session.
@@ -90,6 +120,12 @@ class StatefulIntentTracker:
             user_input: User's input for this turn
             agent_response: Agent's response
             tool_calls: Any tool calls made during this turn
+            subject_token: optional identifier (e.g. a Tessera token jti)
+                for the credential a flagged turning point's escalation
+                contract should gate. Only meaningful when escalation_store
+                is configured; a flagged turning point with no subject_token
+                still opens a contract, it just has nothing to revoke if
+                unacknowledged.
 
         Returns:
             TrackingResult with drift analysis
@@ -132,6 +168,39 @@ class StatefulIntentTracker:
         # Detect crescendo pattern (accelerating drift)
         is_crescendo = self._detect_crescendo(state.drift_history)
 
+        # Decay-delta turning-point verdict (additive; independent cross-check
+        # via trajectory_metrics — does not influence alert_level/flagged_turns
+        # below, which remain governed by the existing logic unchanged).
+        turning_point_flagged = False
+        if _DecayDeltaTracker is not None:
+            if state.decay_delta_tracker is None:
+                state.decay_delta_tracker = _DecayDeltaTracker(
+                    escalation_threshold=self.elevated_threshold,
+                    min_consecutive_increases=3,
+                    window_size=self.window_size,
+                )
+            turning_point_flagged = state.decay_delta_tracker.update(current_drift).is_turning_point
+
+        # Open an escalation contract on a flagged turning point (additive;
+        # only runs if a store was actually configured, and never raises
+        # into the caller's request path — a contract-store failure must
+        # not become a reason to fail the interaction being tracked).
+        if turning_point_flagged and self.escalation_store is not None:
+            try:
+                self.escalation_store.open(
+                    agent_id=agent_id,
+                    reason=f"turning point flagged in session {session_id} at turn {state.turn_count}",
+                    window_seconds=self.escalation_window_seconds,
+                    subject_token=subject_token,
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to open escalation contract for session %s turn %s",
+                    session_id,
+                    state.turn_count,
+                    exc_info=True,
+                )
+
         # Update alert level
         if current_drift >= self.critical_threshold or is_crescendo:
             state.alert_level = "critical"
@@ -156,6 +225,7 @@ class StatefulIntentTracker:
             is_crescendo=is_crescendo,
             explanation=explanation,
             alert_level=state.alert_level,
+            turning_point_flagged=turning_point_flagged,
         )
 
     def get_session_state(self, session_id: str) -> Optional[SessionState]:
