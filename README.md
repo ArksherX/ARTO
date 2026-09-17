@@ -218,6 +218,11 @@ Integration test plan:
 
 ## Ops & Hardening
 
+API specifications:
+- `docs/openapi/verityflux.json`, `docs/openapi/tessera.json`, `docs/openapi/vestigia.json`
+- Regenerate after changing any route: `python ops/generate_openapi.py`
+- CI runs `python ops/generate_openapi.py --check` and fails if a spec is stale.
+
 Playbooks:
 - `ops/hardening_playbook.md`
 - `ops/production_env_checklist.md`

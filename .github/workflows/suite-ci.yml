@@ -45,6 +45,15 @@ jobs:
         run: |
           venv/bin/pytest -q tests/smoke tests/integration tests/regression tests/ui tests/e2e
 
+      - name: Check OpenAPI specs are current
+        env:
+          TESSERA_SECRET_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          VERITYFLUX_API_KEY: "ci-verityflux-key"
+          VESTIGIA_API_KEY: "dev-vestigia-key"
+          MLRT_INTEGRATION_ENABLED: "false"
+        run: |
+          venv/bin/python ops/generate_openapi.py --check
+
   e2e-smoke:
     runs-on: ubuntu-latest
     needs: test-pyramid

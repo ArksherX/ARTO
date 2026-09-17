@@ -2219,22 +2219,98 @@ async def reload_policy(user: Dict = Depends(get_current_user)):
 # AUTHENTICATION ENDPOINTS
 # =============================================================================
 
+_ACCESS_TOKEN_TTL_SECONDS = 1800
+_REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 3600
+
+
+def _mint_jwt(
+    *,
+    user_id: str,
+    organization_id: str,
+    role: str,
+    ttl_seconds: int,
+    token_use: str,
+) -> str:
+    """
+    Mint a signed JWT that _decode_jwt_user() will accept.
+
+    Returns the literal placeholder "eyJ..." when no VERITYFLUX_JWT_SECRET is
+    configured. That preserves the historical behaviour of these endpoints for
+    local/dev use, where get_current_user() falls back to a permissive branch
+    for any bearer token outside strict production mode.
+
+    Claim names are chosen to match what _decode_jwt_user() reads: "sub",
+    "org_id", "role", "permissions". Audience/issuer are only included when
+    configured, since the decoder only verifies them in that case.
+    """
+    secret = _jwt_secret()
+    if not secret:
+        return "eyJ..."
+
+    now = datetime.now(UTC)
+    permissions = ["read", "write", "admin"] if role == "admin" else ["read", "write"]
+    claims: Dict[str, Any] = {
+        "sub": user_id,
+        "org_id": organization_id,
+        "role": role,
+        "permissions": permissions,
+        "token_use": token_use,
+        "iat": now,
+        "exp": now + timedelta(seconds=ttl_seconds),
+        "jti": str(uuid.uuid4()),
+    }
+    audience = _jwt_audience()
+    if audience:
+        claims["aud"] = audience
+    issuer = _jwt_issuer()
+    if issuer:
+        claims["iss"] = issuer
+
+    return jwt.encode(claims, secret, algorithm=_jwt_algorithm())
+
+
+def _issue_login_response(*, user_id: str, organization_id: str, role: str) -> LoginResponse:
+    """Build a LoginResponse carrying freshly minted access/refresh tokens."""
+    return LoginResponse(
+        access_token=_mint_jwt(
+            user_id=user_id,
+            organization_id=organization_id,
+            role=role,
+            ttl_seconds=_ACCESS_TOKEN_TTL_SECONDS,
+            token_use="access",
+        ),
+        refresh_token=_mint_jwt(
+            user_id=user_id,
+            organization_id=organization_id,
+            role=role,
+            ttl_seconds=_REFRESH_TOKEN_TTL_SECONDS,
+            token_use="refresh",
+        ),
+        token_type="bearer",
+        expires_in=_ACCESS_TOKEN_TTL_SECONDS,
+        user_id=user_id,
+        organization_id=organization_id,
+        role=role,
+    )
+
+
 @app.post("/api/v1/auth/login", response_model=LoginResponse, tags=["Authentication"])
 async def login(request: LoginRequest):
     """
-    Authenticate user and get access tokens
+    Authenticate user and get access tokens.
+
+    NOTE: credential verification is not implemented. There is no user store
+    and the supplied password is not checked -- any email is accepted and
+    issued an admin token. What this endpoint does provide is a correctly
+    signed JWT carrying a real tenant claim, so downstream authorization and
+    tenant scoping operate on genuine token data rather than a placeholder.
+    Wiring real credential verification (auth_service) is separate work.
     """
     # In production:
     # result = await auth_service.authenticate_with_user_data(
     #     request.email, request.password, request.mfa_code
     # )
-    
-    # Mock response
-    return LoginResponse(
-        access_token="eyJ...",
-        refresh_token="eyJ...",
-        token_type="bearer",
-        expires_in=1800,
+    return _issue_login_response(
         user_id="user-123",
         organization_id="org-123",
         role="admin",
@@ -2244,18 +2320,31 @@ async def login(request: LoginRequest):
 @app.post("/api/v1/auth/refresh", response_model=LoginResponse, tags=["Authentication"])
 async def refresh_token(request: RefreshTokenRequest):
     """
-    Refresh access token using refresh token
+    Refresh access token using refresh token.
+
+    When a JWT secret is configured the supplied refresh token is verified
+    and its identity/tenant claims are carried into the new tokens, so a
+    refresh cannot be used to change tenant or escalate role. Without a
+    configured secret this falls back to the historical mock identity, matching
+    login().
     """
     # result = await auth_service.refresh_session(request.refresh_token)
-    
-    return LoginResponse(
-        access_token="eyJ...",
-        refresh_token="eyJ...",
-        token_type="bearer",
-        expires_in=1800,
-        user_id="user-123",
-        organization_id="org-123",
-        role="admin",
+    user_id = "user-123"
+    organization_id = "org-123"
+    role = "admin"
+
+    if _jwt_secret():
+        claims = _decode_jwt_user(request.refresh_token)
+        if not claims:
+            raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+        user_id = claims["user_id"]
+        organization_id = claims["organization_id"]
+        role = claims["role"]
+
+    return _issue_login_response(
+        user_id=user_id,
+        organization_id=organization_id,
+        role=role,
     )
 
 
