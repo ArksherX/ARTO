@@ -54,14 +54,35 @@ Recommended:
 ---
 
 ## 5) Security Baselines
-- Enable TLS everywhere.
+- Enable TLS everywhere. Terminate it in exactly one place — see below.
 - Disable unauth endpoints in prod (where possible).
 - Use WAF rules for API endpoints.
 - Restrict admin endpoints by IP or VPN.
 
-Local TLS helper:
+### Where TLS terminates
+
+**Kubernetes (recommended):** at the ingress. All three shipped manifests
+(`tessera/kubernetes/ingress.yaml`, `vestigia/kubernetes/ingress.yaml`,
+`verityflux-v2/deploy/k8s/08-ingress.yaml`) declare a `tls:` block,
+`ssl-redirect`, and a cert-manager issuer. Leave the in-app
+`*_TLS_CERTFILE` / `*_TLS_KEYFILE` variables unset: the services read them
+once at startup with no hot-reload, so in-app certs turn every renewal into
+a restart, while cert-manager renews transparently.
+
+Tradeoff to accept deliberately: ingress→pod traffic is plaintext within the
+cluster. If in-cluster encryption is required (some readings of PCI-DSS,
+FedRAMP, or healthcare contracts), use a service mesh with mTLS, or terminate
+in-app instead.
+
+**Standalone / non-Kubernetes:** in the application, via the
+`*_TLS_CERTFILE` / `*_TLS_KEYFILE` variables. Pair this with a documented
+renewal procedure that restarts the services.
+
+See `ops/production_env_checklist.md` for the per-model checklist.
+
+Local TLS helper (development certificates only):
 ```
-./ops/gen_local_tls.sh
+./ops/internal/gen_local_tls.sh
 ```
 
 ---

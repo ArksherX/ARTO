@@ -1,23 +1,61 @@
+# =============================================================================
+# Vestigia - Ingress Configuration
+# =============================================================================
+#
+# TLS terminates HERE, at the ingress, not in the application.
+#
+# The service also supports in-app TLS via VESTIGIA_TLS_CERTFILE /
+# VESTIGIA_TLS_KEYFILE (api_server.py). Do not use both: that path exists for
+# standalone and non-Kubernetes deployments. Under Kubernetes, terminating at
+# the ingress means cert-manager handles issuance and renewal with no pod
+# restarts, which matters here because the service reads those variables once
+# at startup and has no hot-reload path.
+#
+# Both backends are covered: the API and the Streamlit dashboard. The
+# dashboard in particular must not be reachable over plaintext, since it
+# carries the audit ledger and governance views.
+#
+# Replace vestigia.example.com with your real hostname, and confirm the
+# cluster-issuer name matches what is installed in your cluster.
+# =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: vestigia-ingress
+  labels:
+    app.kubernetes.io/name: vestigia
+    app.kubernetes.io/component: ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    # Reject plaintext: redirect any HTTP request to HTTPS.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Issue and auto-renew the certificate.
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Streamlit holds a long-lived websocket connection for the dashboard.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - vestigia.example.com
+      secretName: vestigia-tls
   rules:
-  - host: vestigia.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: vestigia-api
-            port:
-              number: 80
-      - path: /dashboard
-        pathType: Prefix
-        backend:
-          service:
-            name: vestigia-dashboard
-            port:
-              number: 8501
+    - host: vestigia.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: vestigia-api
+                port:
+                  number: 80
+          - path: /dashboard
+            pathType: Prefix
+            backend:
+              service:
+                name: vestigia-dashboard
+                port:
+                  number: 8501

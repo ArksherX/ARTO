@@ -61,6 +61,39 @@ export VERITYFLUX_JWT_SECRET='<strong-random-value>'
 export VERITYFLUX_JWT_ISSUER='verityflux'
 export VERITYFLUX_JWT_AUDIENCE='verityflux-api'
 
+```
+
+## TLS
+
+Pick exactly one of the two models below. Do not configure both.
+
+### Kubernetes (recommended): terminate at the ingress
+
+This is what the shipped manifests do —
+`tessera/kubernetes/ingress.yaml`, `vestigia/kubernetes/ingress.yaml`,
+and `verityflux-v2/deploy/k8s/08-ingress.yaml` each declare a `tls:` block,
+`ssl-redirect: "true"`, and a cert-manager `cluster-issuer`.
+
+Do **not** set the `*_TLS_CERTFILE` / `*_TLS_KEYFILE` variables in this model.
+cert-manager issues and renews certificates with no pod restarts, which matters
+here because the services read those variables once at startup and have no
+hot-reload path — in-app certs would make every renewal a restart.
+
+Checklist:
+- [ ] Replace the `*.example.com` hostnames in all three ingress manifests.
+- [ ] Confirm the `cert-manager.io/cluster-issuer` name matches an issuer
+      installed in your cluster.
+- [ ] Verify `ssl-redirect` is active: a plain HTTP request should 308 to HTTPS.
+- [ ] Note that ingress→pod traffic is plaintext inside the cluster. If your
+      compliance regime requires in-cluster encryption, use a service mesh with
+      mTLS, or the standalone model below.
+
+### Standalone / non-Kubernetes: terminate in the application
+
+Use this only when there is no ingress or reverse proxy in front of the
+services.
+
+```bash
 export TESSERA_TLS_CERTFILE='/path/to/cert.pem'
 export TESSERA_TLS_KEYFILE='/path/to/key.pem'
 export VESTIGIA_TLS_CERTFILE='/path/to/cert.pem'
@@ -68,6 +101,12 @@ export VESTIGIA_TLS_KEYFILE='/path/to/key.pem'
 export VERITYFLUX_TLS_CERTFILE='/path/to/cert.pem'
 export VERITYFLUX_TLS_KEYFILE='/path/to/key.pem'
 ```
+
+Checklist:
+- [ ] Certificates are readable by the service user.
+- [ ] A renewal procedure exists, and it restarts the services — these values
+      are read at startup only.
+- [ ] Nothing else is already terminating TLS in front of these processes.
 
 ## Validation Sequence
 

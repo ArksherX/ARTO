@@ -1,10 +1,41 @@
+# =============================================================================
+# Tessera - Ingress Configuration
+# =============================================================================
+#
+# TLS terminates HERE, at the ingress, not in the application.
+#
+# The service also supports in-app TLS via TESSERA_TLS_CERTFILE /
+# TESSERA_TLS_KEYFILE (api_server.py). Do not use both: that path exists for
+# standalone and non-Kubernetes deployments. Under Kubernetes, terminating at
+# the ingress means cert-manager handles issuance and renewal with no pod
+# restarts, which matters here because the service reads those variables once
+# at startup and has no hot-reload path.
+#
+# Replace tessera.example.com with your real hostname, and confirm the
+# cluster-issuer name matches what is installed in your cluster.
+# =============================================================================
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: tessera-ingress
+  labels:
+    app.kubernetes.io/name: tessera
+    app.kubernetes.io/component: ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    # Reject plaintext: redirect any HTTP request to HTTPS.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Issue and auto-renew the certificate.
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
 spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - tessera.example.com
+      secretName: tessera-tls
   rules:
-    - host: tessera.local
+    - host: tessera.example.com
       http:
         paths:
           - path: /
