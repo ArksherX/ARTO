@@ -95,13 +95,13 @@ Each detector sends crafted attack prompts to the target LLM and checks response
 
 ```bash
 # Register an agent
-curl -X POST http://localhost:8003/api/v1/soc/agents/register \
+curl -X POST http://localhost:8003/api/v1/soc/agents \
   -H "Content-Type: application/json" \
   -d '{
-    "agent_name": "customer-support-bot",
+    "name": "customer-support-bot",
     "agent_type": "conversational",
-    "provider": "openai",
-    "model": "gpt-4o",
+    "model_provider": "openai",
+    "model_name": "gpt-4o",
     "endpoint_url": null,
     "api_key": "sk-...",
     "has_sandbox": false,
@@ -148,7 +148,7 @@ Undeclared capabilities default to `False` (conservative security posture — ab
 ### Via the API
 
 ```bash
-curl -X POST http://localhost:8003/api/v2/scan \
+curl -X POST http://localhost:8003/api/v1/scans \
   -H "Content-Type: application/json" \
   -d '{
     "target_type": "openai",
@@ -407,12 +407,21 @@ kubectl scale deployment/verityflux-worker --replicas=4 -n verityflux
 
 ## Monitoring
 
-### Prometheus Metrics
+### Metrics
+
+VerityFlux exposes operational metrics as JSON via the SOC API:
 
 ```bash
-# API exposes metrics at
-GET /metrics
+# Fleet-wide SOC metrics
+GET /api/v1/soc/metrics
+
+# Per-agent metrics
+GET /api/v1/soc/agents/{agent_id}/metrics
 ```
+
+> **Note:** Unlike Tessera and Vestigia, VerityFlux does not currently
+> expose a Prometheus-format `/metrics` endpoint. Scraping VerityFlux into
+> Prometheus requires an exporter that reads the JSON endpoints above.
 
 ### Grafana Dashboards
 

@@ -222,6 +222,14 @@ Playbooks:
 - `ops/hardening_playbook.md`
 - `ops/production_env_checklist.md`
 
+Operational references (`ops/internal/`):
+- `ops/internal/production_readiness_gate.md` — security, reliability, observability, data/compliance and AIVSS gate criteria
+- `ops/internal/incident_response_playbook.md` — triage → containment → evidence preservation → eradication → recovery → post-incident review
+- `ops/internal/secrets_env.md` — required environment variables per service
+- `ops/internal/security_control_checks.md` — TLS, RBAC, replay protection, rate limits, sandbox enforcement verification
+- `ops/internal/gen_local_tls.sh` — local TLS certificate generation
+- `ops/internal/prometheus.yml`, `ops/internal/vector.toml` — monitoring and log-shipping configuration
+
 ---
 
 ## CI Workflow

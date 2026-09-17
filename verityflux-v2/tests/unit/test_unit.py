@@ -397,13 +397,6 @@ class TestAPIEndpoints:
         data = response.json()
         assert len(data) > 0
     
-    @pytest.mark.xfail(
-        reason="vulndb_service is globally disabled (main.py: vulndb_service = None, "
-        "instantiation commented out) -- the endpoint currently always returns []. "
-        "Not a test bug; tracks a known-incomplete feature. Remove this marker once "
-        "vulndb_service is wired back in.",
-        strict=False,
-    )
     def test_owasp_llm_top_10(self, client):
         """Test OWASP LLM Top 10 endpoint."""
         login_resp = client.post("/api/v1/auth/login", json={
@@ -419,15 +412,11 @@ class TestAPIEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 10
-        assert any(v["id"] == "LLM01" for v in data)
-    
-    @pytest.mark.xfail(
-        reason="vulndb_service is globally disabled (main.py: vulndb_service = None, "
-        "instantiation commented out) -- the endpoint currently always returns []. "
-        "Not a test bug; tracks a known-incomplete feature. Remove this marker once "
-        "vulndb_service is wired back in.",
-        strict=False,
-    )
+        # VulnerabilityResponse's field is "vuln_id", not "id" -- the
+        # original assertion would have raised KeyError the moment real
+        # data started flowing through, not just failed quietly.
+        assert any(v["vuln_id"] == "LLM01" for v in data)
+
     def test_owasp_agentic_top_10(self, client):
         """Test OWASP Agentic Top 10 endpoint."""
         login_resp = client.post("/api/v1/auth/login", json={
@@ -443,7 +432,7 @@ class TestAPIEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert len(data) == 10
-        assert any(v["id"] == "ASI01" for v in data)
+        assert any(v["vuln_id"] == "ASI01" for v in data)
     
     def test_create_scan(self, client):
         """Test creating a scan."""
@@ -497,14 +486,6 @@ class TestAPIEndpoints:
         assert "id" in data
         assert data["status"] == "pending"
     
-    @pytest.mark.xfail(
-        reason="request_approval() (main.py:3300) has its real hitl_service.request_approval() "
-        "call commented out, replaced with a stub that unconditionally sets status='pending' "
-        "regardless of risk_score -- there is currently no auto-approval branch at all. Not a "
-        "test bug; tracks a known-incomplete feature. Remove this marker once hitl_service is "
-        "wired back in.",
-        strict=False,
-    )
     def test_auto_approve_low_risk(self, client):
         """Test auto-approval for low-risk actions."""
         login_resp = client.post("/api/v1/auth/login", json={

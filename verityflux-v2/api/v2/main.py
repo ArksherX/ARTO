@@ -1973,21 +1973,27 @@ async def lifespan(app: FastAPI):
         
         # In production, these would be:
         # from ..auth.authentication import AuthenticationService
-        # from ..vulndb.vulnerability_service import VulnerabilityDatabaseService
         # from ..scanner.security_scanner import SecurityScanner
         # from ..soc.soc_command_center import SOCCommandCenter
         # from ..hitl.hitl_service import HITLService
         # from ..integrations.integration_service import IntegrationManager
-        
+
         # auth_service = AuthenticationService(...)
-        # vulndb_service = VulnerabilityDatabaseService()
         # scanner_service = SecurityScanner(vulndb_service)
         # integration_manager = IntegrationManager()
         # soc_service = SOCCommandCenter(integration_manager)
         # hitl_service = HITLService(integration_manager=integration_manager)
-        
+
         # await soc_service.start()
         # await hitl_service.start()
+
+        # vulndb_service: real, fully-built service (core/vulndb/vulnerability_service.py).
+        # Synchronous, no network/DB dependency at construction -- loads static
+        # OWASP LLM/Agentic Top 10 definitions into an in-memory cache. Safe to
+        # instantiate eagerly here, unlike the still-commented services above.
+        # Uses the same helper the endpoints fall back to, so there is exactly
+        # one initialization path rather than two that could drift apart.
+        _get_vulndb_service()
         _load_agent_store()
         _load_scan_store()
         _load_skill_assessment_store()
@@ -2391,13 +2397,32 @@ async def get_vulnerability(
     raise HTTPException(status_code=404, detail="Vulnerability not found")
 
 
+def _get_vulndb_service():
+    """
+    Return the vulndb service, initializing it on first use if needed.
+
+    lifespan() initializes it at startup for the normal server path, but
+    that handler does not run when the app is used without entering its
+    lifespan context (e.g. a bare TestClient(app), or any embedding that
+    mounts the app directly). Falling back to lazy init here means these
+    endpoints never raise AttributeError on a None service. The service is
+    synchronous and side-effect-free at construction (it loads static
+    OWASP definitions into memory), so constructing it on demand is safe
+    and idempotent.
+    """
+    global vulndb_service
+    if vulndb_service is None:
+        from core.vulndb.vulnerability_service import VulnerabilityDatabaseService
+        vulndb_service = VulnerabilityDatabaseService()
+    return vulndb_service
+
+
 @app.get("/api/v1/vulnerabilities/owasp/llm", response_model=List[VulnerabilityResponse], tags=["Vulnerabilities"])
 async def get_owasp_llm_top_10(user: Dict = Depends(get_current_user)):
     """
     Get OWASP LLM Top 10 (2025)
     """
-    # return vulndb_service.get_owasp_llm_top_10()
-    return []
+    return _get_vulndb_service().get_owasp_llm_top_10()
 
 
 @app.get("/api/v1/vulnerabilities/owasp/agentic", response_model=List[VulnerabilityResponse], tags=["Vulnerabilities"])
@@ -2405,8 +2430,7 @@ async def get_owasp_agentic_top_10(user: Dict = Depends(get_current_user)):
     """
     Get OWASP Agentic Top 10 (2025)
     """
-    # return vulndb_service.get_owasp_agentic_top_10()
-    return []
+    return _get_vulndb_service().get_owasp_agentic_top_10()
 
 
 @app.post("/api/v1/vulnerabilities/sync", response_model=List[VulnerabilitySyncResponse], tags=["Vulnerabilities"])
@@ -3297,6 +3321,93 @@ async def get_threat_level(user: Dict = Depends(get_current_user)):
 # HITL APPROVAL ENDPOINTS
 # =============================================================================
 
+def _get_hitl_service():
+    """
+    Return the HITL service, initializing it on first use.
+
+    Registers a single catch-all ApprovalPolicy at construction. This is
+    required, not cosmetic: ApprovalRouter.should_auto_approve() iterates
+    get_applicable_policies(), so with zero policies registered it returns
+    False for every request and nothing is ever auto-approved regardless of
+    risk score. The catch-all policy (min_risk_score=0.0) makes the service's
+    own DEFAULT_CONFIG thresholds (auto_approve_below_risk=30.0,
+    auto_deny_above_risk=95.0) actually apply.
+
+    integration_manager is intentionally left None -- the notification path
+    early-returns in that case, so no outbound calls are attempted.
+    """
+    global hitl_service
+    if hitl_service is None:
+        from core.hitl.hitl_service import ApprovalPolicy, HITLService
+
+        svc = HITLService()
+        svc.router.add_policy(
+            ApprovalPolicy(
+                name="default-catch-all",
+                description="Applies the service's default risk thresholds to all requests.",
+                min_risk_score=0.0,
+            )
+        )
+        hitl_service = svc
+    return hitl_service
+
+
+async def _resolve_approval_status(
+    *,
+    context: "ApprovalContextRequest",
+    approval_type: str,
+    timeout_minutes: Optional[int],
+    organization_id: str,
+) -> str:
+    """
+    Ask HITLService for the disposition of an approval request.
+
+    Returns one of the service's ApprovalStatus values as a plain string
+    ("auto_approved", "auto_denied", "pending", ...).
+
+    Fails safe: any error resolving the status returns "pending", so a
+    failure in the policy layer results in a request that still requires
+    human review rather than one that is silently allowed through.
+    """
+    try:
+        from core.hitl.hitl_service import ApprovalContext, ApprovalType
+
+        try:
+            parsed_type = ApprovalType(approval_type)
+        except ValueError:
+            parsed_type = ApprovalType.TOOL_EXECUTION
+
+        hitl_context = ApprovalContext(
+            agent_id=context.agent_id,
+            agent_name=context.agent_name,
+            session_id=context.session_id or "",
+            user_id=context.user_id or "",
+            organization_id=organization_id,
+            tool_name=context.tool_name,
+            action_type=context.action_type,
+            parameters=context.parameters,
+            reasoning_chain=context.reasoning_chain,
+            original_goal=context.original_goal or "",
+            risk_score=context.risk_score,
+            risk_factors=context.risk_factors,
+            violations=context.violations,
+        )
+
+        # wait_for_decision=False is required here: the service's default is
+        # True, which blocks until a human decides or the request expires --
+        # that would hang the HTTP request for the full timeout window.
+        status, _request = await _get_hitl_service().request_approval(
+            context=hitl_context,
+            approval_type=parsed_type,
+            timeout_minutes=timeout_minutes,
+            wait_for_decision=False,
+        )
+        return status.value
+    except Exception:
+        logger.warning("HITL status resolution failed; defaulting to pending", exc_info=True)
+        return "pending"
+
+
 @app.post("/api/v1/approvals", response_model=ApprovalRequestResponse, tags=["HITL"])
 async def request_approval(
     context: ApprovalContextRequest,
@@ -3308,26 +3419,27 @@ async def request_approval(
     """
     Request human approval for an action
     """
-    # approval_context = ApprovalContext(
-    #     agent_id=context.agent_id,
-    #     ...
-    #     organization_id=user["organization_id"],
-    # )
-    # status, request = await hitl_service.request_approval(
-    #     context=approval_context,
-    #     approval_type=ApprovalType(approval_type),
-    #     timeout_minutes=timeout_minutes,
-    #     wait_for_decision=wait,
-    # )
-    
     request_id = str(uuid.uuid4())
     now = datetime.now(UTC)
     ttl = timeout_minutes or 30
     action_desc = getattr(context, "action_description", None) or getattr(context, "action_type", None) or "action"
+
+    # Ask the real HITL service what the disposition should be. It owns the
+    # policy logic (auto-approve below a risk threshold, auto-deny above one,
+    # rule matching); this endpoint continues to own persistence, so the
+    # APPROVAL_STORE record shape that every other approval endpoint reads
+    # stays exactly as it was.
+    resolved_status = await _resolve_approval_status(
+        context=context,
+        approval_type=approval_type,
+        timeout_minutes=timeout_minutes,
+        organization_id=_organization_id_from_user(user),
+    )
+
     record = {
         "id": request_id,
         "organization_id": _organization_id_from_user(user),
-        "status": "pending",
+        "status": resolved_status,
         "risk_level": context.risk_level if hasattr(context, "risk_level") else ("critical" if context.risk_score >= 80 else "high" if context.risk_score >= 60 else "medium"),
         "title": f"{context.agent_name} wants to use {context.tool_name}",
         "description": f"Risk score: {context.risk_score}. Action: {action_desc}",
@@ -3348,7 +3460,7 @@ async def request_approval(
     _save_approval_store()
     return ApprovalRequestResponse(
         id=request_id,
-        status="pending",
+        status=resolved_status,
         risk_level=record["risk_level"],
         title=record["title"],
         description=record["description"],
