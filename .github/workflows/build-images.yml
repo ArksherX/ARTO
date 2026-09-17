@@ -1,0 +1,126 @@
+# =============================================================================
+# Container image build and publish
+# =============================================================================
+#
+# Previously no workflow built or published container images. The repository
+# had Dockerfiles and Kubernetes manifests referencing tagged images
+# (verityflux/api:3.5.0, tessera-iam:latest, vestigia/vestigia-api:latest,
+# ...), but nothing produced them -- so a `kubectl apply` would fail on
+# ImagePullBackOff for every service.
+#
+# Publishes to GitHub Container Registry (ghcr.io), which needs no extra
+# credentials: the built-in GITHUB_TOKEN is sufficient.
+#
+# Pull requests build but do not push, so a broken Dockerfile fails review
+# rather than after merge.
+# =============================================================================
+name: Build Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/Dockerfile*"
+      - "**/requirements.txt"
+      - "tessera/**"
+      - "vestigia/**"
+      - "verityflux-v2/**"
+      - ".github/workflows/build-images.yml"
+  pull_request:
+    paths:
+      - "**/Dockerfile*"
+      - "**/requirements.txt"
+      - ".github/workflows/build-images.yml"
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      # One broken image should not mask the status of the others.
+      fail-fast: false
+      matrix:
+        include:
+          - name: verityflux-api
+            context: verityflux-v2
+            dockerfile: verityflux-v2/deploy/docker/Dockerfile
+            target: production
+          - name: verityflux-ui
+            context: verityflux-v2
+            dockerfile: verityflux-v2/deploy/docker/Dockerfile
+            target: ui
+          - name: tessera-api
+            context: tessera
+            dockerfile: tessera/Dockerfile
+            target: ""
+          - name: tessera-dashboard
+            context: tessera
+            dockerfile: tessera/Dockerfile.dashboard
+            target: ""
+          - name: vestigia-api
+            context: vestigia
+            dockerfile: vestigia/Dockerfile.api
+            target: ""
+          - name: vestigia-dashboard
+            context: vestigia
+            dockerfile: vestigia/Dockerfile.dashboard
+            target: ""
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to registry
+        # Skipped on pull requests: forks have no push credentials, and a PR
+        # should not publish images in any case.
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.name }}
+          tags: |
+            type=ref,event=branch
+            type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: ${{ matrix.target }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Scan image for vulnerabilities
+        # Runs on the locally-built image. Does not fail the build yet:
+        # establish a baseline of what is already present before making this
+        # blocking, otherwise it blocks every build on day one.
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository }}/${{ matrix.name }}:sha-${{ github.sha }}
+          format: table
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+          ignore-unfixed: true
+        continue-on-error: true

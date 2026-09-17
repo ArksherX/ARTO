@@ -1,6 +1,33 @@
 # =============================================================================
 # VerityFlux - Background Worker Deployment
 # =============================================================================
+#
+# NOT DEPLOYABLE AS WRITTEN -- removed from kustomization.yaml.
+#
+# Both workloads below invoke `celery -A verityflux_enterprise.worker`, but:
+#   - celery is not a dependency in requirements.txt
+#   - no Celery app is constructed anywhere in the codebase
+#     (core/worker.py defines a plain in-process scheduler class, not a
+#     Celery app)
+#   - the module path verityflux_enterprise.worker does not exist
+#   - the image verityflux/worker:3.5.0 has no Dockerfile; the only
+#     Dockerfile (deploy/docker/Dockerfile) builds the API image and its
+#     single production stage runs uvicorn
+#
+# Applying this file produces two Deployments whose pods cannot start. It is
+# retained as the design intent for a future Celery-based worker tier, not as
+# a working manifest. Before re-enabling it in kustomization.yaml, all four
+# points above must be resolved.
+#
+# Note on the scheduler's `replicas: 1` + `strategy: Recreate` below: that is
+# correct for Celery Beat, not an oversight -- two Beat instances would
+# double-fire every scheduled task. It does mean the scheduler is a single
+# point of failure by design; the standard mitigations are a leader-election
+# lock or a driver such as redbeat that coordinates through Redis. Separately,
+# the schedule-db volume is an emptyDir mounted at /app/data, so Beat's
+# schedule state is discarded on every restart -- that needs a PVC, not
+# emptyDir, when this tier becomes real.
+# =============================================================================
 ---
 apiVersion: apps/v1
 kind: Deployment

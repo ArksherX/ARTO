@@ -78,3 +78,23 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 USER verityflux
 EXPOSE 8000
 CMD ["uvicorn", "api.v2.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# =============================================================================
+# UI stage -- builds the verityflux/ui image referenced by deploy/k8s/06-ui.yaml
+# =============================================================================
+#
+# Build with: docker build --target ui -f deploy/docker/Dockerfile .
+#
+# Shares the production stage's environment and application code; only the
+# entrypoint differs. Previously no Dockerfile built a UI image at all, so
+# 06-ui.yaml referenced verityflux/ui:3.5.0 with nothing producing it.
+FROM production as ui
+
+USER verityflux
+EXPOSE 8501
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8501/_stcore/health || exit 1
+
+CMD ["streamlit", "run", "ui/streamlit/app.py", \
+     "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]

@@ -39,7 +39,9 @@ spec:
           command:
             - streamlit
             - run
-            - verityflux_enterprise/ui/app.py
+            # Corrected: verityflux_enterprise/ui/app.py does not exist.
+            # The Streamlit app lives at ui/streamlit/app.py.
+            - ui/streamlit/app.py
             - --server.port=8501
             - --server.address=0.0.0.0
             - --server.headless=true

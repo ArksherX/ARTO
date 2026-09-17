@@ -16,7 +16,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY tessera/ ./tessera/
 COPY integration/ ./integration/
 COPY api_server.py .
-COPY .env .
+# .env is deliberately NOT copied: it is gitignored, so this failed any build
+# from a clean checkout, and baking secrets into an image is wrong regardless.
+# Supply configuration at runtime via environment variables or a mounted
+# Secret -- see ops/internal/secrets_env.md for the required variables.
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

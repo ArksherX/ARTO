@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt streamlit
 
 COPY tessera/ ./tessera/
 COPY web_ui/ ./web_ui/
-COPY .env .
+# .env deliberately not copied -- see the note in tessera/Dockerfile.
 
 EXPOSE 8501
 
