@@ -407,9 +407,22 @@ kubectl scale deployment/verityflux-worker --replicas=4 -n verityflux
 
 ## Monitoring
 
-### Metrics
+### Prometheus Metrics
 
-VerityFlux exposes operational metrics as JSON via the SOC API:
+```bash
+# Prometheus text format, scrapeable directly
+GET /metrics
+```
+
+Exposes `verityflux_agents_registered`, `verityflux_scans_total`,
+`verityflux_api_keys_total`, and `verityflux_approvals` (labelled by
+status, so a growing pending-approval backlog is visible). Gauges are
+sampled at scrape time from live state. Tessera and Vestigia expose
+`/metrics` in the same format.
+
+### JSON metrics
+
+Richer operational detail is available as JSON via the SOC API:
 
 ```bash
 # Fleet-wide SOC metrics
@@ -418,10 +431,6 @@ GET /api/v1/soc/metrics
 # Per-agent metrics
 GET /api/v1/soc/agents/{agent_id}/metrics
 ```
-
-> **Note:** Unlike Tessera and Vestigia, VerityFlux does not currently
-> expose a Prometheus-format `/metrics` endpoint. Scraping VerityFlux into
-> Prometheus requires an exporter that reads the JSON endpoints above.
 
 ### Grafana Dashboards
 

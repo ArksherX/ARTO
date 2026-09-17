@@ -54,6 +54,24 @@ from core.skill_security import SkillSecurityAssessor
 from core.protocol_integrity import ProtocolIntegrityAnalyzer
 from cognitive_firewall.firewall import reload_all_policies
 
+# Prometheus metrics. Optional dependency, matching the pattern Tessera and
+# Vestigia already use: if the client is absent the service still starts and
+# /metrics returns 503 rather than failing at import.
+try:
+    from prometheus_client import CONTENT_TYPE_LATEST, Gauge, generate_latest
+except Exception:  # pragma: no cover - exercised only when the dep is absent
+    Gauge = generate_latest = CONTENT_TYPE_LATEST = None
+
+if Gauge is not None:
+    _METRIC_AGENTS = Gauge("verityflux_agents_registered", "Agents currently registered")
+    _METRIC_SCANS = Gauge("verityflux_scans_total", "Scans recorded in the scan store")
+    _METRIC_API_KEYS = Gauge("verityflux_api_keys_total", "API keys currently issued")
+    _METRIC_APPROVALS = Gauge(
+        "verityflux_approvals", "HITL approval requests by status", ["status"]
+    )
+else:  # pragma: no cover
+    _METRIC_AGENTS = _METRIC_SCANS = _METRIC_API_KEYS = _METRIC_APPROVALS = None
+
 # In-memory scan state (demo-safe; replace with DB/queue in production)
 SCAN_STORE: Dict[str, Dict[str, Any]] = {}
 SKILL_ASSESSMENT_STORE: Dict[str, Dict[str, Any]] = {}
@@ -1312,7 +1330,7 @@ def _run_scan_job(scan_id: str, target: "ScanTargetRequest", config: Optional["S
                 SCAN_STORE[scan_id].update({
                     "status": "failed",
                     "error": f"Credential validation failed: {cred_detail}",
-                    "completed_at": datetime.utcnow(),
+                    "completed_at": datetime.now(UTC),
                 })
                 _save_scan_store()
                 _emit_integration_event(
@@ -1369,7 +1387,7 @@ def _run_scan_job(scan_id: str, target: "ScanTargetRequest", config: Optional["S
                 response_snippet=threat.evidence.get("response") if isinstance(threat.evidence, dict) else None,
             ))
 
-        completed_at = datetime.utcnow()
+        completed_at = datetime.now(UTC)
         result = ScanResultResponse(
             scan_id=scan_id,
             status="completed",
@@ -1409,7 +1427,7 @@ def _run_scan_job(scan_id: str, target: "ScanTargetRequest", config: Optional["S
         SCAN_STORE[scan_id].update({
             "status": "failed",
             "error": str(exc),
-            "completed_at": datetime.utcnow(),
+            "completed_at": datetime.now(UTC),
         })
         _save_scan_store()
         _emit_integration_event(
@@ -2132,7 +2150,7 @@ async def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "services": {
             "api": "healthy",
             "database": "healthy",
@@ -2149,6 +2167,39 @@ async def readiness_check():
     """Readiness check for Kubernetes"""
     # Check if all services are ready
     return {"ready": True}
+
+
+@app.get("/metrics", tags=["Health"])
+def metrics():
+    """
+    Prometheus metrics endpoint.
+
+    Tessera and Vestigia have both exposed /metrics for some time; VerityFlux
+    did not, so a Prometheus configuration written on the reasonable assumption
+    that the three services are symmetric would silently miss this one. Gauges
+    are sampled at scrape time from the in-memory stores rather than maintained
+    incrementally, which keeps them correct across restarts and store reloads.
+    """
+    if not generate_latest:
+        raise HTTPException(status_code=503, detail="Prometheus client not installed")
+
+    if _METRIC_AGENTS is not None:
+        _METRIC_AGENTS.set(len(AGENT_STORE))
+        _METRIC_SCANS.set(len(SCAN_STORE))
+        _METRIC_API_KEYS.set(len(API_KEY_STORE))
+
+        # Approvals are broken out by status so that a growing backlog of
+        # pending decisions is visible, which is the actionable signal here.
+        by_status: Dict[str, int] = {}
+        for record in APPROVAL_STORE.values():
+            status = str(record.get("status") or "unknown")
+            by_status[status] = by_status.get(status, 0) + 1
+        for status in ("pending", "approved", "denied", "auto_approved", "auto_denied", "expired"):
+            _METRIC_APPROVALS.labels(status=status).set(by_status.pop(status, 0))
+        for status, count in by_status.items():
+            _METRIC_APPROVALS.labels(status=status).set(count)
+
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # =============================================================================
@@ -2574,7 +2625,7 @@ async def start_scan(
     SCAN_STORE[scan_id] = {
         "organization_id": _organization_id_from_user(user),
         "status": "initializing",
-        "started_at": datetime.utcnow(),
+        "started_at": datetime.now(UTC),
         "completed_at": None,
         "result": None,
         "error": None,
@@ -2601,7 +2652,7 @@ async def start_scan(
         status="initializing",
         target_name=target.name,
         profile=config.profile if config else "standard",
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(UTC),
         estimated_duration_minutes=10,
     )
 
@@ -2657,7 +2708,7 @@ async def get_scan_progress(
         total_tests=0,
         current_vuln="",
         findings_count=len(scan.get("result").findings) if scan.get("result") else 0,
-        elapsed_seconds=(datetime.utcnow() - scan.get("started_at")).total_seconds() if scan.get("started_at") else 0.0,
+        elapsed_seconds=(datetime.now(UTC) - scan.get("started_at")).total_seconds() if scan.get("started_at") else 0.0,
         estimated_remaining_seconds=None,
     )
 
@@ -3025,7 +3076,7 @@ async def create_incident(
         incident_type=request.incident_type,
         priority=request.priority,
         status="open",
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(UTC),
         acknowledged_at=None,
         resolved_at=None,
         assigned_to=None,
@@ -3188,7 +3239,7 @@ async def register_agent(
         existing["codebase_path"] = request.codebase_path
         existing["vector_store_url"] = request.vector_store_url
         existing["system_prompt"] = request.system_prompt
-        existing["updated_at"] = datetime.utcnow()
+        existing["updated_at"] = datetime.now(UTC)
         _save_agent_store()
         _emit_integration_event(
             event_type="agent_updated",
@@ -3230,8 +3281,8 @@ async def register_agent(
         "blocked_requests": 0,
         "health_score": 100.0,
         "last_seen_at": None,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
+        "created_at": datetime.now(UTC),
+        "updated_at": datetime.now(UTC),
     }
     AGENT_STORE[agent_id] = record
     _save_agent_store()
@@ -3330,14 +3381,14 @@ async def agent_heartbeat(
     if not record or record.get("organization_id") != org_id:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    record["last_seen_at"] = datetime.utcnow()
+    record["last_seen_at"] = datetime.now(UTC)
     record["total_requests"] = int(record.get("total_requests", 0) or 0) + 1
     if blocked:
         record["blocked_requests"] = int(record.get("blocked_requests", 0) or 0) + 1
         record["health_score"] = max(0.0, float(record.get("health_score", 100.0) or 0.0) - 1.0)
     else:
         record["health_score"] = min(100.0, float(record.get("health_score", 100.0) or 0.0) + 0.1)
-    record["updated_at"] = datetime.utcnow()
+    record["updated_at"] = datetime.now(UTC)
     _save_agent_store()
     return {"received": True, "agent_id": agent_id, "blocked": blocked}
 
@@ -3357,7 +3408,7 @@ async def quarantine_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
     record["status"] = "quarantined"
     record["health_score"] = min(float(record.get("health_score", 100.0) or 0.0), 25.0)
-    record["updated_at"] = datetime.utcnow()
+    record["updated_at"] = datetime.now(UTC)
     _save_agent_store()
     _emit_integration_event(
         event_type="agent_quarantined",
@@ -3386,7 +3437,7 @@ async def get_soc_metrics(
     # threat_level = soc_service.get_threat_level(user["organization_id"])
     
     return SOCMetricsResponse(
-        timestamp=datetime.utcnow(),
+        timestamp=datetime.now(UTC),
         period=period,
         incidents={"total": 0, "open": 0, "by_priority": {}, "by_status": {}},
         sla={"compliance_rate": 100.0, "avg_response_time_minutes": 0, "breaches": 0},

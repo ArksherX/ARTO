@@ -113,6 +113,66 @@ def test_approval_detail_blocked_across_tenants(client):
     )
 
 
+def _create_api_key(client, org_id: str) -> str:
+    """Create an API key owned by org_id; return its key id."""
+    resp = client.post(
+        "/api/v1/auth/api-keys",
+        headers=_headers(org_id),
+        json={"name": f"key-{uuid.uuid4()}", "expires_in_days": 30},
+    )
+    assert resp.status_code == 200, resp.text
+    # The response field is "key_id", not "id" (APIKeyResponse, main.py:1486).
+    return resp.json()["key_id"]
+
+
+def test_api_key_list_does_not_leak_across_tenants(client):
+    """API keys are credentials -- a cross-tenant read here is materially
+    worse than leaking a record id, so this boundary is worth its own test."""
+    alpha_key = _create_api_key(client, "org-alpha")
+    beta_key = _create_api_key(client, "org-beta")
+    assert alpha_key != beta_key
+
+    resp = client.get("/api/v1/auth/api-keys", headers=_headers("org-alpha"))
+    assert resp.status_code == 200
+    visible = {row["key_id"] for row in resp.json()}
+
+    assert alpha_key in visible, "tenant cannot see its own API key"
+    assert beta_key not in visible, "LEAK: tenant alpha can see tenant beta's API key"
+
+
+def test_api_key_revoke_blocked_across_tenants(client):
+    """Isolation must cover writes, not just reads: revoking another
+    tenant's key would be a denial-of-service against them."""
+    beta_key = _create_api_key(client, "org-beta")
+
+    resp = client.delete(f"/api/v1/auth/api-keys/{beta_key}", headers=_headers("org-alpha"))
+    assert resp.status_code in (403, 404), (
+        f"LEAK: cross-tenant key revocation returned {resp.status_code}, expected 403/404"
+    )
+
+    # And confirm the key genuinely still works for its owner afterwards.
+    still_there = client.get("/api/v1/auth/api-keys", headers=_headers("org-beta"))
+    assert beta_key in {row["key_id"] for row in still_there.json()}, (
+        "beta's key was revoked by alpha despite the request being refused"
+    )
+
+
+def test_scan_detail_blocked_across_tenants(client):
+    """Scans carry findings about a tenant's systems."""
+    create = client.post(
+        "/api/v1/scans",
+        headers=_headers("org-beta"),
+        json={"target_type": "custom", "name": "isolation-test-scan"},
+    )
+    assert create.status_code == 200, create.text
+    beta_scan = create.json()["scan_id"]
+
+    resp = client.get(f"/api/v1/scans/{beta_scan}", headers=_headers("org-alpha"))
+    assert resp.status_code in (403, 404), (
+        f"LEAK: cross-tenant scan read returned {resp.status_code}, expected 403/404"
+    )
+
+
 def test_isolation_holds_under_concurrent_load(client):
     """
     Interleave two tenants' writes concurrently, then verify neither can see

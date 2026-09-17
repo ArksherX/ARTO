@@ -8030,6 +8030,26 @@
         ]
       }
     },
+    "/metrics": {
+      "get": {
+        "description": "Prometheus metrics endpoint.\n\nTessera and Vestigia have both exposed /metrics for some time; VerityFlux\ndid not, so a Prometheus configuration written on the reasonable assumption\nthat the three services are symmetric would silently miss this one. Gauges\nare sampled at scrape time from the in-memory stores rather than maintained\nincrementally, which keeps them correct across restarts and store reloads.",
+        "operationId": "metrics_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Metrics",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
     "/ready": {
       "get": {
         "description": "Readiness check for Kubernetes",

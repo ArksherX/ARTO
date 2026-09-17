@@ -19,7 +19,7 @@ import json
 import asyncio
 import logging
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 from typing import Optional, Dict, Any, List, Tuple, Callable, Set
 from dataclasses import dataclass, field
 from enum import Enum
@@ -189,7 +189,7 @@ class ApprovalRequest:
     context: ApprovalContext = field(default_factory=ApprovalContext)
     
     # Timing
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     expires_at: datetime = None
     decided_at: datetime = None
     
@@ -228,18 +228,18 @@ class ApprovalRequest:
         
         if not self.callback_token:
             self.callback_token = hashlib.sha256(
-                f"{self.id}{datetime.utcnow().isoformat()}".encode()
+                f"{self.id}{datetime.now(UTC).isoformat()}".encode()
             ).hexdigest()[:32]
     
     def is_expired(self) -> bool:
         """Check if request has expired"""
-        return datetime.utcnow() > self.expires_at and self.status == ApprovalStatus.PENDING
+        return datetime.now(UTC) > self.expires_at and self.status == ApprovalStatus.PENDING
     
     def time_remaining(self) -> timedelta:
         """Get time remaining before expiration"""
         if self.status != ApprovalStatus.PENDING:
             return timedelta(0)
-        remaining = self.expires_at - datetime.utcnow()
+        remaining = self.expires_at - datetime.now(UTC)
         return max(remaining, timedelta(0))
     
     def to_dict(self) -> dict:
@@ -313,7 +313,7 @@ class ApprovalPolicy:
     priority: int = 0  # Higher = evaluated first
     
     # Metadata
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     created_by: str = ""
 
 
@@ -345,7 +345,7 @@ class ApprovalRule:
     session_id: str = ""
     
     # Audit
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     created_by: str = ""
     created_from_request_id: str = ""
 
@@ -355,7 +355,7 @@ class ApprovalAuditEntry:
     """Audit log entry for approval actions"""
     
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     
     # Request reference
     request_id: str = ""
@@ -619,7 +619,7 @@ class ApprovalRuleEngine:
                 continue
             
             # Check expiration
-            if rule.expires_at and datetime.utcnow() > rule.expires_at:
+            if rule.expires_at and datetime.now(UTC) > rule.expires_at:
                 rule.is_active = False
                 continue
             
@@ -784,7 +784,7 @@ class HITLService:
             if self.router.should_auto_approve(request):
                 request.status = ApprovalStatus.AUTO_APPROVED
                 request.decision = ApprovalDecision.APPROVE
-                request.decided_at = datetime.utcnow()
+                request.decided_at = datetime.now(UTC)
                 request.decided_by = "system"
                 self._log_audit(request, "auto_approved", "system", "system")
                 return ApprovalStatus.AUTO_APPROVED, request
@@ -792,7 +792,7 @@ class HITLService:
             if self.router.should_auto_deny(request):
                 request.status = ApprovalStatus.AUTO_DENIED
                 request.decision = ApprovalDecision.DENY
-                request.decided_at = datetime.utcnow()
+                request.decided_at = datetime.now(UTC)
                 request.decided_by = "system"
                 self._log_audit(request, "auto_denied", "system", "system")
                 return ApprovalStatus.AUTO_DENIED, request
@@ -820,7 +820,7 @@ class HITLService:
             
             try:
                 # Wait with timeout
-                timeout = (request.expires_at - datetime.utcnow()).total_seconds()
+                timeout = (request.expires_at - datetime.now(UTC)).total_seconds()
                 await asyncio.wait_for(future, timeout=max(1, timeout))
                 
                 # Refresh request
@@ -887,7 +887,7 @@ class HITLService:
             return True, "Information requested"
         
         request.decision = decision
-        request.decided_at = datetime.utcnow()
+        request.decided_at = datetime.now(UTC)
         request.decided_by = decided_by
         request.justification = justification
         request.conditions = conditions or []
@@ -954,7 +954,7 @@ class HITLService:
             self.router.increment_approver_load(approver)
         
         # Extend timeout
-        request.expires_at = datetime.utcnow() + timedelta(
+        request.expires_at = datetime.now(UTC) + timedelta(
             minutes=self.config.escalation_timeout_minutes
         )
         
@@ -963,7 +963,7 @@ class HITLService:
         
         # Log escalation
         request.escalation_history.append({
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "from_level": old_level,
             "to_level": request.escalation_level,
             "escalated_by": escalated_by,
@@ -1000,7 +1000,7 @@ class HITLService:
         
         # Expire the request
         request.status = ApprovalStatus.EXPIRED
-        request.decided_at = datetime.utcnow()
+        request.decided_at = datetime.now(UTC)
         
         # Update approver load
         for approver in request.assigned_to:
@@ -1023,7 +1023,7 @@ class HITLService:
             return False
         
         request.status = ApprovalStatus.CANCELLED
-        request.decided_at = datetime.utcnow()
+        request.decided_at = datetime.now(UTC)
         request.decided_by = cancelled_by
         
         # Update approver load
@@ -1096,7 +1096,7 @@ class HITLService:
     
     def get_stats(self, organization_id: str = None, period_hours: int = 24) -> Dict[str, Any]:
         """Get approval statistics"""
-        cutoff = datetime.utcnow() - timedelta(hours=period_hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=period_hours)
         
         requests = [
             r for r in self._requests.values()
@@ -1252,7 +1252,7 @@ class HITLService:
             await self.integration_manager.send_notification(notification)
             
             request.notification_count += 1
-            request.last_notification_at = datetime.utcnow()
+            request.last_notification_at = datetime.now(UTC)
             
         except Exception as e:
             logger.error(f"Failed to send approval notification: {e}")
@@ -1440,7 +1440,7 @@ class HITLService:
         """Send reminders for pending requests"""
         while self._running:
             try:
-                now = datetime.utcnow()
+                now = datetime.now(UTC)
                 
                 for request in self._requests.values():
                     if request.status != ApprovalStatus.PENDING:
