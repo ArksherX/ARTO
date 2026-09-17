@@ -1627,15 +1627,38 @@ def render_audit_trail():
         horizontal=True,
     )
 
+    col_a, col_b = st.columns([2, 1])
+    with col_a:
+        hide_noise = st.checkbox(
+            "Hide routine polling (API_REQUEST, health checks)", value=True,
+            help="Same signal filter used by the Dashboard's 'What ARTO handled' feed — "
+                 "hides the API server's own health/polling traffic, keeps everything "
+                 "security-meaningful (blocks, alerts, denies, revocations, tokens).",
+        )
+    with col_b:
+        scan_limit = st.number_input(
+            "Events to scan", min_value=50, max_value=2000,
+            value=300 if hide_noise else 50, step=50,
+        )
+
     if st.session_state.audit_source == "API":
         st.caption("Using Vestigia API for live events")
         action_filter = st.text_input("Filter action_type (optional)", value="")
-        api_events = get_api_events(limit=50, action_type=action_filter or None)
+        api_events = get_api_events(limit=int(scan_limit), action_type=action_filter or None)
         if not api_events:
             st.info("No events returned from API.")
             return
 
-        st.markdown(f"### Showing {len(api_events)} API events")
+        scanned = len(api_events)
+        if hide_noise:
+            api_events = [e for e in api_events if _is_signal_event(
+                e.get("actor_id", ""), e.get("action_type", ""), e.get("status", ""))]
+            st.markdown(f"### Showing {len(api_events)} signal events (of {scanned} scanned) — routine polling hidden")
+            if not api_events:
+                st.info("No security-relevant events in this window. Uncheck 'Hide routine polling' to see raw traffic.")
+                return
+        else:
+            st.markdown(f"### Showing {scanned} API events")
         for idx, event in enumerate(api_events):
             status = event.get("status", "INFO")
             icon = "🔴" if status in ["CRITICAL", "DENIED", "error"] else "🟡" if status in ["WARNING"] else "🟢"
@@ -1648,12 +1671,21 @@ def render_audit_trail():
         return
 
     action_filter = st.text_input("Filter action_type (optional)", value="")
-    events = parse_shared_audit_events(limit=50, action_type=action_filter or None)
+    events = parse_shared_audit_events(limit=int(scan_limit), action_type=action_filter or None)
     if not events:
         st.info("No events recorded yet")
         return
 
-    st.markdown(f"### Showing {len(events)} recent events")
+    scanned = len(events)
+    if hide_noise:
+        events = [e for e in events if _is_signal_event(
+            e.get("actor_id", ""), e.get("action_type", ""), e.get("status", ""))]
+        st.markdown(f"### Showing {len(events)} signal events (of {scanned} scanned) — routine polling hidden")
+        if not events:
+            st.info("No security-relevant events in this window. Uncheck 'Hide routine polling' to see raw traffic.")
+            return
+    else:
+        st.markdown(f"### Showing {scanned} recent events")
 
     for idx, event in enumerate(events):
         status = event.get("status", "INFO")
