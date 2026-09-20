@@ -25,7 +25,21 @@ def _strict_prod_mode() -> bool:
     return _prod_mode() and os.getenv("SUITE_STRICT_MODE", "false").lower() in ("1", "true", "yes")
 
 
-if not os.getenv('TESSERA_SECRET_KEY') and not _strict_prod_mode():
+def _any_production_marker() -> bool:
+    """True if ANY supported marker indicates production.
+
+    Deliberately broader than _strict_prod_mode(), which requires both a mode
+    flag and SUITE_STRICT_MODE. Setting only TESSERA_ENV=production used to
+    leave the dev fallback below injected into the environment, which then
+    satisfied TokenGenerator's own check and left JWTs signed with a secret
+    committed to this repository. Mirrors TokenGenerator.is_production().
+    """
+    if os.getenv("TESSERA_ENV", "").strip().lower() in ("prod", "production"):
+        return True
+    return _prod_mode() or os.getenv("SUITE_STRICT_MODE", "false").strip().lower() in ("1", "true", "yes")
+
+
+if not os.getenv('TESSERA_SECRET_KEY') and not _any_production_marker():
     os.environ['TESSERA_SECRET_KEY'] = '168595de6449925806d7b448d132a5ec6290cb0ce31f253826c2694586f05c0d21518555e12dc87de7088820e215aa2505008d87d8a64ce03f2cad74d8484b06'
 # DPoP and memory binding are opt-in for production deployments
 if not os.getenv('TESSERA_REQUIRE_DPOP'):

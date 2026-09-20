@@ -56,7 +56,6 @@ export VERITYFLUX_SCORER_PROVIDER='openai'
 export VERITYFLUX_SCORER_MODEL='gpt-4o-mini'
 export VERITYFLUX_SCORER_API_KEY='<provider-key>'
 
-export VERITYFLUX_ENABLE_JWT=true
 export VERITYFLUX_JWT_SECRET='<strong-random-value>'
 export VERITYFLUX_JWT_ISSUER='verityflux'
 export VERITYFLUX_JWT_AUDIENCE='verityflux-api'
@@ -134,7 +133,7 @@ Strict preflight now checks:
 - `VERITYFLUX_ALLOWED_ORIGINS`
 - `VERITYFLUX_MCP_TOOL_SECRET`
 - `VERITYFLUX_MANIFEST_KEY`
-- `VERITYFLUX_JWT_SECRET` when `VERITYFLUX_ENABLE_JWT=true`
+- `VERITYFLUX_JWT_SECRET` — setting it is what activates JWT validation
 - `VESTIGIA_SECRET_SALT`
 - `VESTIGIA_PLATFORM_ADMIN_KEY` when `VESTIGIA_MULTI_TENANT=true`
 
@@ -144,7 +143,7 @@ Strict preflight now checks:
 - In strict production mode, the launcher and service startup paths fail closed on missing critical secrets.
 - In strict production mode, VerityFlux only accepts explicitly configured API keys and no longer accepts wildcard CORS origins.
 - VerityFlux API keys are now persisted with hashed verification and revocation metadata. The admin env key still exists as a bootstrap path.
-- VerityFlux bearer-token auth now validates real JWTs when `VERITYFLUX_ENABLE_JWT=true` and `VERITYFLUX_JWT_SECRET` is configured.
+- VerityFlux bearer-token auth validates real JWTs whenever `VERITYFLUX_JWT_SECRET` is configured. (There is no `VERITYFLUX_ENABLE_JWT` flag — no code reads one; the secret's presence is the switch.)
 - `VERITYFLUX_TENANT_SCOPED_STORAGE=true` stores scans, skill assessments, approvals, and API keys under tenant-specific directories rather than shared flat files.
 - `TESSERA_TENANT_SCOPED_REGISTRY=true` stores agent registry records under tenant-specific directories while preserving a unified in-memory view.
 - `TESSERA_ENFORCE_TENANT_SCOPE=true` requires tenant-scoped agent queries on Tessera admin/listing surfaces so tenant data is not returned globally by default.

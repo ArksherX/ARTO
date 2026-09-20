@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timedelta, UTC
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
+import logging
 import os
 import sys
 from pathlib import Path
@@ -22,6 +23,8 @@ from cryptography.hazmat.backends import default_backend
 
 # Load environment (allow .env to override any stale shell exports)
 load_dotenv(override=True)
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class TesseraToken:
@@ -68,16 +71,49 @@ class TokenGenerator:
         if self.algorithm not in self.ALLOWED_ALGORITHMS:
             raise ValueError(f"TESSERA_ALGORITHM must be one of {self.ALLOWED_ALGORITHMS}")
 
+    @staticmethod
+    def is_production() -> bool:
+        """True if any supported marker says this is a production deployment.
+
+        Every production signal must be honoured here. Previously each call
+        site had its own narrower gate: api_server.py required
+        (MLRT_MODE|MODE)=prod *and* SUITE_STRICT_MODE=true, while this module
+        keyed off TESSERA_ENV. Setting only TESSERA_ENV=production therefore
+        left api_server free to inject DEV_FALLBACK_SECRET into the
+        environment, after which the check below saw a key present and never
+        fired -- so tokens were signed with a secret committed to a public
+        repository. Treat any one marker as sufficient.
+        """
+        if os.getenv("TESSERA_ENV", "").strip().lower() in ("prod", "production"):
+            return True
+        if os.getenv("MLRT_MODE", "").strip().lower() == "prod":
+            return True
+        if os.getenv("MODE", "").strip().lower() == "prod":
+            return True
+        return os.getenv("SUITE_STRICT_MODE", "false").strip().lower() in ("1", "true", "yes")
+
     def _load_secret_key(self) -> bytes:
         secret_key = os.getenv('TESSERA_SECRET_KEY')
-        env_name = os.getenv("TESSERA_ENV", "").strip().lower()
         strict = os.getenv("TESSERA_STRICT_SECRET_KEY", "false").lower() in ("1", "true", "yes")
-        strict = strict or env_name in ("prod", "production")
+        strict = strict or self.is_production()
         if not secret_key and os.getenv("PYTEST_CURRENT_TEST"):
             secret_key = "a" * 64
+        # Refuse the publicly-known development fallback in production, even
+        # when it arrives pre-set in the environment rather than via this
+        # branch -- that is the path that made this reachable at all.
+        if strict and secret_key == self.DEV_FALLBACK_SECRET:
+            raise ValueError(
+                "TESSERA_SECRET_KEY is the built-in development fallback, which is "
+                "published in this repository's source. Set a unique secret before "
+                "running in production."
+            )
         if not secret_key:
             if strict:
                 raise ValueError("TESSERA_SECRET_KEY must be set in .env")
+            logger.warning(
+                "TESSERA_SECRET_KEY unset - using the built-in development fallback. "
+                "This key is public; never use it outside local development."
+            )
             # Demo/dev-safe fallback aligned with tessera/api_server.py
             secret_key = self.DEV_FALLBACK_SECRET
         key_bytes = self._normalize_secret_key(secret_key)

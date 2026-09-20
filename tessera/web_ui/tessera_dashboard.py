@@ -26,8 +26,27 @@ from urllib import request as urllib_request
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Ensure secret key is available (same default as api_server.py for dev/demo)
+# Ensure secret key is available (same default as api_server.py for dev/demo).
+# Guarded: this injection previously ran unconditionally, so even a fully
+# strict production deployment fell back to a secret committed to this
+# repository. Never inject when any production marker is set.
+def _dashboard_production_marker() -> bool:
+    if os.getenv("TESSERA_ENV", "").strip().lower() in ("prod", "production"):
+        return True
+    if os.getenv("MLRT_MODE", "").strip().lower() == "prod":
+        return True
+    if os.getenv("MODE", "").strip().lower() == "prod":
+        return True
+    return os.getenv("SUITE_STRICT_MODE", "false").strip().lower() in ("1", "true", "yes")
+
+
 if not os.getenv('TESSERA_SECRET_KEY'):
+    if _dashboard_production_marker():
+        raise RuntimeError(
+            "TESSERA_SECRET_KEY must be set when any production marker is present "
+            "(TESSERA_ENV/MLRT_MODE/MODE/SUITE_STRICT_MODE). Refusing to start with "
+            "the built-in development fallback, which is published in this source tree."
+        )
     os.environ['TESSERA_SECRET_KEY'] = '168595de6449925806d7b448d132a5ec6290cb0ce31f253826c2694586f05c0d21518555e12dc87de7088820e215aa2505008d87d8a64ce03f2cad74d8484b06'
 
 # Import Tessera modules

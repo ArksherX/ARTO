@@ -6,6 +6,9 @@ venv/
 *.pyc
 .env
 .env.*
+# Template with placeholder values only — must stay tracked so operators
+# have a discoverable starting point. Never put real secrets in it.
+!.env.example
 
 # Local artifacts & runtime state
 /logs/
