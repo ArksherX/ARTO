@@ -4146,6 +4146,34 @@
         ]
       }
     },
+    "/api/v1/escalation/report": {
+      "get": {
+        "description": "Stage 1 escalation report: what auto-revocation *would* have done.\n\nEscalation contracts currently run in report-only mode \u2014 a flagged turning\npoint opens a contract with a real deadline, and a lapsed deadline is\nrecorded here rather than revoking anything.\n\n`acknowledgement_rate` is the number worth watching. A low rate means\nnobody is answering the queue, which is the failure Stage 2 exists to\nsurface: a deadline nobody reads is only a delayed outage once Stage 3\nmakes it binding.",
+        "operationId": "escalation_report_api_v1_escalation_report_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Escalation Report",
+        "tags": [
+          "HITL"
+        ]
+      }
+    },
     "/api/v1/integrations": {
       "get": {
         "description": "List configured integrations",

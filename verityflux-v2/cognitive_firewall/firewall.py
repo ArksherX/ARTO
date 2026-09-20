@@ -1480,10 +1480,26 @@ class EnhancedCognitiveFirewall:
             self.multi_tenant_manager = None
         
         # Initialize stateful intent tracker
+        #
+        # Stage 1: a flagged turning point opens an escalation contract with a
+        # real deadline, and a lapsed deadline is recorded rather than acted
+        # on. Nothing is revoked. See escalation_contract.report_only for why
+        # revocation is not wired directly to the detector yet.
+        self.escalation_ledger = None
         try:
             from .stateful_intent_tracker import StatefulIntentTracker
-            self.intent_tracker = StatefulIntentTracker()
-            print("  📊 Stateful intent tracker initialized")
+
+            store = None
+            try:
+                from escalation_contract import make_report_only_store
+
+                store, self.escalation_ledger = make_report_only_store()
+            except ImportError:
+                pass
+
+            self.intent_tracker = StatefulIntentTracker(escalation_store=store)
+            print("  📊 Stateful intent tracker initialized"
+                  + (" (escalation: report-only)" if store else ""))
         except Exception:
             self.intent_tracker = None
 

@@ -2169,6 +2169,42 @@ async def readiness_check():
     return {"ready": True}
 
 
+@app.get("/api/v1/escalation/report", tags=["HITL"])
+async def escalation_report(user: Dict = Depends(get_current_user)):
+    """Stage 1 escalation report: what auto-revocation *would* have done.
+
+    Escalation contracts currently run in report-only mode — a flagged turning
+    point opens a contract with a real deadline, and a lapsed deadline is
+    recorded here rather than revoking anything.
+
+    `acknowledgement_rate` is the number worth watching. A low rate means
+    nobody is answering the queue, which is the failure Stage 2 exists to
+    surface: a deadline nobody reads is only a delayed outage once Stage 3
+    makes it binding.
+    """
+    _get_intent_tracker()  # ensure the tracker and its ledger exist
+    if _escalation_ledger is None:
+        return {
+            "stage": "unavailable",
+            "detail": "escalation_contract is not installed; no contracts are being opened",
+        }
+    return {
+        "stage": "1-report-only",
+        "revocation_enabled": False,
+        "summary": _escalation_ledger.summary(),
+        "would_have_revoked": [
+            {
+                "agent_id": e.agent_id,
+                "subject_token": e.subject_token,
+                "reason": e.reason,
+                "opened_at": e.opened_at.isoformat(),
+                "deadline": e.deadline.isoformat(),
+            }
+            for e in _escalation_ledger.would_have_revoked[-100:]
+        ],
+    }
+
+
 @app.get("/metrics", tags=["Health"])
 def metrics():
     """
@@ -4104,11 +4140,34 @@ def _get_adversarial_scorer():
     return _adversarial_scorer
 
 
+#: Stage 1 ledger: what escalation contracts WOULD have revoked. Read by
+#: /api/v1/escalation/report. See escalation_contract.report_only.
+_escalation_ledger = None
+
+
 def _get_intent_tracker():
-    global _intent_tracker
+    global _intent_tracker, _escalation_ledger
     if _intent_tracker is None:
         from cognitive_firewall.stateful_intent_tracker import StatefulIntentTracker
-        _intent_tracker = StatefulIntentTracker()
+
+        # Stage 1 of the escalation rollout: contracts open on a flagged
+        # turning point and expire on a real deadline, but a lapsed deadline is
+        # only recorded -- nothing is revoked and no traffic is affected.
+        #
+        # The detector currently sits near an 8% false-positive rate, so one
+        # flagged session in roughly twelve is a false alarm. Wiring revocation
+        # to that directly would cut off a working agent at that rate. Stage 1
+        # replaces the benchmark figure with an observed one before anything
+        # irreversible is switched on.
+        store = None
+        try:
+            from escalation_contract import make_report_only_store
+
+            store, _escalation_ledger = make_report_only_store()
+        except ImportError:  # optional dependency — tracker works without it
+            logger.info("escalation_contract not installed; turning points will not open contracts")
+
+        _intent_tracker = StatefulIntentTracker(escalation_store=store)
     return _intent_tracker
 
 
