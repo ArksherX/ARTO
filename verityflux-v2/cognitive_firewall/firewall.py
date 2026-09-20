@@ -1575,7 +1575,20 @@ class EnhancedCognitiveFirewall:
             
             # Step 3: Evaluate through security layers
             decision = self._evaluate_layers(agent_action, tenant_id)
-            
+
+            # Step 3b: Trajectory escalation
+            #
+            # Steps 1-3 score this action in isolation. That is exactly the
+            # blind spot the Accumulation Problem describes: each turn looks
+            # acceptable on its own while the sequence escalates. The API
+            # verdict path already folds trajectory state into its decision;
+            # this path previously did not -- self.intent_tracker was
+            # constructed and never read -- so an embedded integration got
+            # weaker enforcement than an API one, with nothing signalling the
+            # difference. Placed before Step 4 so an escalation here actually
+            # reaches the HITL gateway rather than only being reported.
+            self._apply_trajectory_escalation(agent_action, decision, session_token)
+
             # Step 4: HITL integration
             if self.config.get('enable_hitl', True):
                 if decision.action == FirewallAction.REQUIRE_APPROVAL:
@@ -1632,6 +1645,89 @@ class EnhancedCognitiveFirewall:
                 context={'system_error': True}
             )
     
+    def _apply_trajectory_escalation(
+        self,
+        agent_action: AgentAction,
+        decision: FirewallDecision,
+        session_token: Optional[str],
+    ) -> None:
+        """Fold multi-turn trajectory state into a single-action decision.
+
+        Mutates *decision* in place when the session is escalating. Mirrors the
+        API verdict path: a crescendo raises the risk score to at least 80 and
+        lifts an ALLOW to REQUIRE_APPROVAL. A decision that already blocks is
+        left alone -- trajectory context cannot make a block safer.
+
+        No-ops unless a session identifier is available. Without one there is no
+        correct session to attribute this turn to: inventing a per-call id makes
+        every turn look like turn one, and sharing a single id merges unrelated
+        conversations into one trajectory. Both are worse than not tracking, so
+        this path stays exactly as it was today when session identity is absent.
+        """
+        if self.intent_tracker is None:
+            return
+
+        context = agent_action.context or {}
+        session_id = session_token or context.get("session_id")
+        if not session_id:
+            return
+
+        # AgentAction carries no explicit turn text, so fall back to the
+        # intent-bearing fields it does have.
+        user_input = context.get("user_input") or agent_action.original_goal or ""
+        agent_response = context.get("agent_response") or " ".join(
+            agent_action.reasoning_chain or []
+        )
+        if not user_input and not agent_response:
+            return
+
+        try:
+            result = self.intent_tracker.track_interaction(
+                session_id=str(session_id),
+                agent_id=agent_action.agent_id,
+                user_input=user_input,
+                agent_response=agent_response,
+                tool_calls=[{
+                    "tool": agent_action.tool_name,
+                    "args": agent_action.parameters,
+                }],
+            )
+        except Exception as exc:  # tracking must never break traffic
+            # The logging call is itself guarded: self.logger is the structured
+            # logger in production and accepts kwargs, but a caller supplying a
+            # plain stdlib logger would raise here and defeat the whole point of
+            # this handler.
+            try:
+                self.logger.warning(
+                    "Trajectory tracking failed; falling back to single-action decision",
+                    error=str(exc),
+                )
+            except Exception:
+                pass
+            return
+
+        decision.context["session_drift"] = {
+            "drift_score": result.drift_score,
+            "drift_rate": result.drift_rate,
+            "is_crescendo": result.is_crescendo,
+            "alert_level": result.alert_level,
+            "turning_point_flagged": result.turning_point_flagged,
+        }
+
+        if not result.is_crescendo:
+            return
+
+        decision.risk_score = max(decision.risk_score, 80.0)
+        decision.violations.append(
+            f"Multi-turn escalation detected (drift={result.drift_score:.2f}, "
+            f"alert={result.alert_level})"
+        )
+        if decision.action == FirewallAction.ALLOW:
+            decision.action = FirewallAction.REQUIRE_APPROVAL
+            decision.reasoning = (
+                f"{decision.reasoning} | Escalated on trajectory: {result.explanation}"
+            )
+
     def _evaluate_layers(self, agent_action: AgentAction, tenant_id: Optional[str]) -> FirewallDecision:
         """Evaluate through all security layers"""
         violations = []
