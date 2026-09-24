@@ -1485,6 +1485,16 @@ class EnhancedCognitiveFirewall:
         # real deadline, and a lapsed deadline is recorded rather than acted
         # on. Nothing is revoked. See escalation_contract.report_only for why
         # revocation is not wired directly to the detector yet.
+        # NARROW Phase 1 (report-only) — see cognitive_firewall/narrowing.py
+        try:
+            from .narrowing import NarrowingEvaluator, NarrowingLedger
+
+            self.narrowing_evaluator = NarrowingEvaluator()
+            self.narrowing_ledger = NarrowingLedger()
+        except Exception:
+            self.narrowing_evaluator = None
+            self.narrowing_ledger = None
+
         self.escalation_ledger = None
         try:
             from .stateful_intent_tracker import StatefulIntentTracker
@@ -1852,7 +1862,58 @@ class EnhancedCognitiveFirewall:
         # Make decision
         tier = self._get_risk_tier(overall_risk)
         action, reasoning = self._make_tiered_decision(overall_risk, violations, tier, risk_breakdown)
-        
+
+        # NARROW, Phase 1: report-only.
+        #
+        # Computes what clamping WOULD do and records it. The decision above is
+        # returned unchanged -- nothing executes differently. The number being
+        # gathered is how often a high-risk outcome has a clampable parameter,
+        # i.e. how much of the false-positive cost NARROW could absorb, which
+        # is currently a guess.
+        #
+        # Only consulted for REQUIRE_APPROVAL. Hard blocks and CRITICAL tier
+        # are non-negotiable by construction, and an action already permitted
+        # has nothing to gain from being reduced.
+        narrowing = None
+        if self.narrowing_evaluator is not None and action == FirewallAction.REQUIRE_APPROVAL:
+            try:
+                narrowing = self.narrowing_evaluator.evaluate(
+                    agent_action.tool_name, agent_action.parameters
+                )
+                self.narrowing_ledger.record(narrowing)
+            except Exception:
+                # Measurement must never affect a decision.
+                narrowing = None
+
+            # Logged separately and guarded on its own. Folding this into the
+            # block above meant a logging failure discarded an already-recorded
+            # result, so the ledger and the decision context disagreed --
+            # self.logger is a StructuredLogger and takes no positional format
+            # arguments.
+            if narrowing is not None and narrowing.narrowable:
+                try:
+                    self.logger.info(
+                        "[narrow:report-only] would have narrowed - no action taken (Phase 1)",
+                        tool=agent_action.tool_name,
+                        clamps="; ".join(narrowing.clamps_applied),
+                    )
+                except Exception:
+                    pass
+
+        context = {
+            'tier': tier,
+            'risk_breakdown': risk_breakdown,
+            'tenant_id': tenant_id
+        }
+        if narrowing is not None and narrowing.narrowable:
+            context['narrowing_candidate'] = {
+                'would_have_narrowed': True,
+                'original_parameters': narrowing.original_parameters,
+                'narrowed_parameters': narrowing.narrowed_parameters,
+                'clamps': narrowing.clamps_applied,
+                'enforced': False,
+            }
+
         return FirewallDecision(
             action=action,
             confidence=85.0,
@@ -1860,11 +1921,7 @@ class EnhancedCognitiveFirewall:
             risk_score=overall_risk,
             violations=violations,
             recommendations=recommendations,
-            context={
-                'tier': tier,
-                'risk_breakdown': risk_breakdown,
-                'tenant_id': tenant_id
-            }
+            context=context
         )
     
     def _check_vulnerability_database(self, agent_action: AgentAction) -> List[Vulnerability]:
