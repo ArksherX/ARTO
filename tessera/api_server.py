@@ -69,7 +69,7 @@ import uvicorn
 from tessera.registry import TesseraRegistry
 from tessera.token_generator import TokenGenerator
 from tessera.gatekeeper import Gatekeeper, AccessDecision
-from tessera.dpop_replay_cache import DPoPReplayCache
+from tessera.dpop_replay_cache import DPoPReplayCache, ReplayOutcome
 import jwt
 from tessera.rate_limiter import RateLimiter
 
@@ -1126,7 +1126,31 @@ def validate_token(req: TokenValidate, request: Request, dpop: Optional[str] = H
             try:
                 proof_payload = jwt.decode(dpop_proof, options={"verify_signature": False})
                 proof_jti = proof_payload.get("jti")
-                if not dpop_replay_cache.check_and_store(proof_jti, ttl_seconds=60):
+                # Bind the jti to what the proof was issued for, so a refusal
+                # can be classified. Same binding means the identical request
+                # twice (often a retry); a different binding means the proof is
+                # being reused to authorise something else, which is never
+                # benign. Both are refused; only the alarm differs.
+                proof_binding = dpop_replay_cache.binding_hash(
+                    htm=proof_payload.get("htm"),
+                    htu=proof_payload.get("htu"),
+                    agent_id=getattr(req, "agent_id", None),
+                    tool=getattr(req, "tool", None),
+                )
+                accepted, outcome = dpop_replay_cache.check_and_classify(
+                    proof_jti, ttl_seconds=60, binding=proof_binding
+                )
+                if not accepted:
+                    logger.warning(
+                        "DPoP proof refused: outcome=%s jti=%s agent=%s",
+                        outcome.value,
+                        proof_jti,
+                        getattr(req, "agent_id", None),
+                    )
+                    if outcome is ReplayOutcome.SUBSTITUTION:
+                        raise HTTPException(
+                            403, "DPoP proof substitution detected"
+                        )
                     raise HTTPException(403, "DPoP proof replay detected")
             except HTTPException:
                 raise
