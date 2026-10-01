@@ -68,6 +68,11 @@ export VERITYFLUX_SCORER_PROVIDER='openai'
 export VERITYFLUX_SCORER_MODEL='gpt-4o-mini'
 export VERITYFLUX_SCORER_API_KEY='<provider-key>'
 
+# Real semantic embeddings for drift detection (requires the optional
+# sentence-transformers dependency; defaults to the offline hash embedding).
+export VERITYFLUX_EMBEDDING_BACKEND='sbert'
+export VERITYFLUX_EMBEDDING_MODEL='all-MiniLM-L6-v2'
+
 export VERITYFLUX_JWT_SECRET='<strong-random-value>'
 export VERITYFLUX_JWT_ISSUER='verityflux'
 export VERITYFLUX_JWT_AUDIENCE='verityflux-api'

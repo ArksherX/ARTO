@@ -6,21 +6,39 @@ Prevents "Boiling the Frog" attacks where agent slowly reinterprets goal
 over 10+ reasoning steps until destructive action looks "logical".
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+import os
 import re
 import zlib
+import logging
 import numpy as np
+
+logger = logging.getLogger(__name__)
+
 
 class SemanticDriftDetector:
     """
     Compares predicted action outcome against initial user intent using embeddings.
-    
+
     Triggers alert if task vector deviates >30% from starting goal vector.
+
+    The embedding backend is pluggable (VERITYFLUX_EMBEDDING_BACKEND):
+      * "hash" (default): a dependency-free, deterministic bag-of-words vector.
+        Offline and reproducible, but coarse -- it saturates quickly, which is
+        why absolute drift plateaus for long adversarial sessions.
+      * "sbert": real sentence embeddings (sentence-transformers, e.g.
+        all-MiniLM-L6-v2). This is the production path. The model is loaded
+        lazily; if the optional dependency is absent the detector latches back
+        to "hash" for the whole instance, so embedding dimensions stay
+        consistent and nothing fails at runtime.
     """
-    
+
     def __init__(self, drift_threshold: float = 0.30):
         self.drift_threshold = drift_threshold  # 30% max deviation
         self.embedding_cache = {}
+        self.backend = os.getenv("VERITYFLUX_EMBEDDING_BACKEND", "hash").strip().lower()
+        self._sbert_model = None
+        self._sbert_failed = False
     
     def calculate_drift(
         self,
@@ -78,17 +96,61 @@ class SemanticDriftDetector:
         }
     
     def _get_embedding(self, text: str) -> np.ndarray:
+        """Return a semantic embedding for text, via the configured backend.
+
+        Caching sits here so the vector is computed once per text regardless of
+        backend. The backend is chosen once per instance; if "sbert" cannot be
+        loaded the instance latches to "hash", so every vector it returns has a
+        consistent dimension and cosine similarity stays well-defined.
         """
-        Get semantic embedding for text.
-        
-        In production, use: sentence-transformers/all-MiniLM-L6-v2
-        For now, use simple TF-IDF-like approach.
-        """
-        
-        # Check cache
         if text in self.embedding_cache:
             return self.embedding_cache[text]
-        
+
+        vec: Optional[np.ndarray] = None
+        if self.backend == "sbert" and self._load_sbert() is not None:
+            vec = self._sbert_embedding(text)
+        if vec is None:
+            vec = self._hash_embedding(text)
+
+        self.embedding_cache[text] = vec
+        return vec
+
+    def _load_sbert(self):
+        """Lazy-load the sentence-transformers model, latching failure to hash."""
+        if self._sbert_model is not None:
+            return self._sbert_model
+        if self._sbert_failed:
+            return None
+        try:
+            from sentence_transformers import SentenceTransformer
+            model_name = os.getenv("VERITYFLUX_EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+            self._sbert_model = SentenceTransformer(model_name)
+            logger.info("Loaded sbert embedding backend: %s", model_name)
+            return self._sbert_model
+        except Exception:
+            logger.warning(
+                "sbert embedding backend requested but unavailable; "
+                "falling back to the hash embedding for this instance",
+                exc_info=True,
+            )
+            self._sbert_failed = True
+            return None
+
+    def _sbert_embedding(self, text: str) -> np.ndarray:
+        """Real sentence embedding, L2-normalized (model assumed loaded)."""
+        vec = np.asarray(self._sbert_model.encode(text), dtype=float)
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
+        return vec
+
+    def _hash_embedding(self, text: str) -> np.ndarray:
+        """
+        Deterministic bag-of-words embedding (default, dependency-free).
+
+        In production, prefer the "sbert" backend
+        (sentence-transformers/all-MiniLM-L6-v2).
+        """
         # Simplified embedding with lexical hashing fallback.
         # Keeps behavior deterministic while avoiding constant max drift for benign text.
         words = re.findall(r"[a-z0-9_]+", text.lower())
@@ -122,10 +184,9 @@ class SemanticDriftDetector:
         norm = np.linalg.norm(embedding)
         if norm > 0:
             embedding = embedding / norm
-        
-        self.embedding_cache[text] = embedding
+
         return embedding
-    
+
     def _cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
         """Calculate cosine similarity between two vectors"""
         dot_product = np.dot(vec1, vec2)

@@ -94,6 +94,14 @@ pytest-asyncio>=0.21.0
 pytest-cov>=4.1.0
 
 # =============================================================================
+# OPTIONAL: REAL SEMANTIC EMBEDDINGS
+# =============================================================================
+# Enables VERITYFLUX_EMBEDDING_BACKEND=sbert for the semantic-drift detector.
+# Left commented so the base install stays lightweight and offline; when it is
+# absent the detector uses the deterministic hash embedding instead.
+# sentence-transformers>=2.2.0
+
+# =============================================================================
 # DEVELOPMENT
 # =============================================================================
 black>=23.11.0
