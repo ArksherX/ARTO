@@ -8,6 +8,7 @@ Classifies inputs as benign, probing, hostile, or exploit.
 
 import os
 import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
 
@@ -31,6 +32,49 @@ class ScorerResult:
     # signal: such input is NOT confidently benign and must not be treated as
     # cleared. Default False keeps every existing consumer backward-compatible.
     requires_review: bool = False
+
+
+# Homoglyph fold: common non-Latin lookalikes -> Latin. NFKD does not fold
+# these (Cyrillic/Greek are distinct scripts), so an attacker can spell
+# "ignore" with Cyrillic а/е/о/с etc. and evade a raw substring match.
+_HOMOGLYPHS = {
+    "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x", "у": "y",
+    "к": "k", "м": "m", "н": "h", "т": "t", "в": "b", "і": "i", "ѕ": "s",
+    "ԁ": "d", "ɡ": "g", "ј": "j", "ן": "i",
+    "ο": "o", "ν": "v", "α": "a", "ρ": "p", "ι": "i", "ϲ": "c",
+}
+_HOMOGLYPH_TABLE = {ord(k): v for k, v in _HOMOGLYPHS.items()}
+
+# Conservative leetspeak fold, applied as an ADDITIONAL matching variant only
+# (never replaces the primary text), so it can add detections but not alter the
+# returned result.
+_LEET_TABLE = str.maketrans({"0": "o", "1": "i", "3": "e", "4": "a", "5": "s",
+                             "7": "t", "@": "a", "$": "s"})
+
+
+def _normalize_for_matching(text: str) -> str:
+    """Canonicalise text for pattern matching only (not for storage or the LLM).
+
+    Defeats common obfuscation of the SAME words: fullwidth and other
+    compatibility forms (NFKD), combining diacritics, zero-width / formatting
+    characters, homoglyphs, and whitespace padding. Does NOT decode genuine
+    encodings (base64/hex/rot13/reversed) -- those are a separate concern and,
+    post fail-closed, fall through to requires_review rather than a false benign.
+    """
+    # NFKD decomposes fullwidth compatibility forms and separates diacritics.
+    decomposed = unicodedata.normalize("NFKD", text)
+    out = []
+    for ch in decomposed:
+        cat = unicodedata.category(ch)
+        if cat == "Mn":          # combining mark (diacritic) -> drop
+            continue
+        if cat == "Cf":          # format char (zero-width, BOM, etc.) -> drop
+            continue
+        out.append(ch)
+    folded = "".join(out).translate(_HOMOGLYPH_TABLE)
+    # Collapse all whitespace runs (tabs, newlines, repeats) to single spaces.
+    folded = re.sub(r"\s+", " ", folded)
+    return folded.lower().strip()
 
 
 class AdversarialLLMScorer:
@@ -113,8 +157,16 @@ class AdversarialLLMScorer:
         return [self.score_input(inp, context) for inp in inputs]
 
     def _pattern_prescore(self, text: str) -> Optional[ScorerResult]:
-        """Fast pattern-based pre-screening."""
-        text_lower = text.lower()
+        """Fast pattern-based pre-screening.
+
+        Matches against the canonicalised text (and a leetspeak variant) so
+        obfuscated spellings of the same keywords are caught, not just the exact
+        ASCII form.
+        """
+        normalized = _normalize_for_matching(text)
+        leet = normalized.translate(_LEET_TABLE)
+        # Single haystack so a pattern present in either variant is counted once.
+        text_lower = normalized + "\n" + leet
 
         # Encoded payload evasion (e.g. base64 prompt smuggling)
         if ("base64" in text_lower and re.search(r"[a-z0-9+/]{24,}={0,2}", text_lower)):
