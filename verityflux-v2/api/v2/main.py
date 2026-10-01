@@ -62,11 +62,30 @@ try:
 except Exception:  # pragma: no cover - exercised only when the dep is absent
     Gauge = generate_latest = CONTENT_TYPE_LATEST = None
 
+def _get_or_create_gauge(name: str, documentation: str, labelnames=()):
+    """Create a Gauge, or reuse the existing one if already registered.
+
+    Gauges register against prometheus_client's default global REGISTRY at
+    import. If this module is executed twice under different names (e.g. run as
+    a script AND imported as api.v2.main by a uvicorn worker), the second
+    creation raises "Duplicated timeseries in CollectorRegistry" and crashes
+    startup. Reusing the existing collector makes the import idempotent.
+    """
+    try:
+        return Gauge(name, documentation, labelnames)
+    except ValueError:
+        from prometheus_client import REGISTRY
+        existing = getattr(REGISTRY, "_names_to_collectors", {}).get(name)
+        if existing is not None:
+            return existing
+        raise
+
+
 if Gauge is not None:
-    _METRIC_AGENTS = Gauge("verityflux_agents_registered", "Agents currently registered")
-    _METRIC_SCANS = Gauge("verityflux_scans_total", "Scans recorded in the scan store")
-    _METRIC_API_KEYS = Gauge("verityflux_api_keys_total", "API keys currently issued")
-    _METRIC_APPROVALS = Gauge(
+    _METRIC_AGENTS = _get_or_create_gauge("verityflux_agents_registered", "Agents currently registered")
+    _METRIC_SCANS = _get_or_create_gauge("verityflux_scans_total", "Scans recorded in the scan store")
+    _METRIC_API_KEYS = _get_or_create_gauge("verityflux_api_keys_total", "API keys currently issued")
+    _METRIC_APPROVALS = _get_or_create_gauge(
         "verityflux_approvals", "HITL approval requests by status", ["status"]
     )
 else:  # pragma: no cover
@@ -3970,6 +3989,27 @@ async def get_approval_request(
     return record
 
 
+# Map an ApprovalDecision verb (what the client sends) to the canonical
+# ApprovalStatus the rest of the system reports on (ApprovalStatus in
+# core.hitl.hitl_service). Without this, a human "approve" was stored verbatim
+# as status="approve", so /metrics (which counts status="approved") and the
+# stats endpoint silently missed every real decision. Unknown verbs fail safe
+# to "pending" -- still needing a human -- rather than marked resolved.
+_DECISION_TO_STATUS = {
+    "approve": "approved",
+    "approve_once": "approved",
+    "approve_session": "approved",
+    "approve_always": "approved",
+    "deny": "denied",
+    "deny_always": "denied",
+    "escalate": "escalated",
+}
+
+
+def _decision_to_status(decision: str) -> str:
+    return _DECISION_TO_STATUS.get((decision or "").strip().lower(), "pending")
+
+
 @app.post("/api/v1/approvals/{request_id}/decide", tags=["HITL"])
 async def decide_approval(
     request_id: str,
@@ -3980,7 +4020,8 @@ async def decide_approval(
     record = APPROVAL_STORE.get(request_id)
     if not record or _organization_id_from_record(record) != _organization_id_from_user(user):
         raise HTTPException(status_code=404, detail="Approval request not found")
-    record["status"] = request.decision if request.decision in ("approve", "deny", "escalate") else "decided"
+    record["status"] = _decision_to_status(request.decision)
+    record["decision"] = request.decision  # keep the raw verb for audit fidelity
     record["decided_by"] = user.get("user_id", "admin")
     record["justification"] = request.justification
     record["decided_at"] = datetime.now(UTC).isoformat()
