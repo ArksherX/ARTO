@@ -59,15 +59,32 @@ class TrajectoryTracker:
         window_size: how many recent scores to retain. Older history is
             dropped, matching StatefulIntentTracker's bounded window
             (default 20) so long sessions don't grow memory unbounded.
+        plateau_tolerance: when None (default), a turn counts toward the run
+            only if it STRICTLY exceeds the previous turn -- the original
+            behaviour. The strict rule has a blind spot: a crescendo whose
+            score saturates and plateaus at the top stops strictly increasing
+            exactly when it is most dangerous, so the run breaks and no
+            turning point fires. Set a small non-negative tolerance (e.g.
+            0.02) to treat a sustained high level as continued escalation: a
+            turn then counts if it does not drop by more than the tolerance
+            AND its level is at/above escalation_threshold. A flat LOW (benign
+            steady) sequence still never counts, because of the level check.
     """
 
     escalation_threshold: float = 0.25
     min_consecutive_increases: int = 3
     window_size: int = 20
+    plateau_tolerance: Optional[float] = None
 
     _history: List[float] = field(default_factory=list, repr=False)
     _turning_point_turn: Optional[int] = field(default=None, repr=False)
     _turn_count: int = field(default=0, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.plateau_tolerance is not None and self.plateau_tolerance < 0:
+            raise ValueError(
+                f"plateau_tolerance must be >= 0 or None, got {self.plateau_tolerance!r}"
+            )
 
     def update(self, score: float) -> DecayDeltaScore:
         """
@@ -123,10 +140,23 @@ class TrajectoryTracker:
         return self._turning_point_turn
 
     def _consecutive_increases(self) -> int:
-        """Length of the current run of strictly-increasing scores, ending at the latest turn."""
+        """Length of the current escalation run, ending at the latest turn.
+
+        Strict mode (plateau_tolerance is None): a run of strictly-increasing
+        scores. Tolerant mode: a run of turns that do not drop by more than
+        plateau_tolerance and sit at/above escalation_threshold, so a high
+        plateau counts as sustained escalation while a low plateau does not.
+        """
         run = 0
         for i in range(len(self._history) - 1, 0, -1):
-            if self._history[i] > self._history[i - 1]:
+            cur = self._history[i]
+            prev = self._history[i - 1]
+            if self.plateau_tolerance is None:
+                counts = cur > prev
+            else:
+                counts = (cur >= prev - self.plateau_tolerance
+                          and cur >= self.escalation_threshold)
+            if counts:
                 run += 1
             else:
                 break

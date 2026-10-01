@@ -8,6 +8,7 @@ with configurable turn windows.
 """
 
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Dict, Any, List, Optional
 from datetime import datetime, UTC
@@ -78,6 +79,7 @@ class StatefulIntentTracker:
         critical_threshold: float = 0.40,
         escalation_store: Optional[Any] = None,
         escalation_window_seconds: float = 900.0,
+        escalation_plateau_tolerance: Optional[float] = None,
     ):
         """
         Args:
@@ -99,6 +101,15 @@ class StatefulIntentTracker:
         self.critical_threshold = critical_threshold
         self.escalation_store = escalation_store
         self.escalation_window_seconds = escalation_window_seconds
+        # Plateau tolerance for the decay-delta turning-point run. Default None
+        # keeps the strict (originally shipped) behaviour; a value lets a
+        # crescendo that saturates and plateaus at the top still flag, which is
+        # otherwise unreachable with a coarse metric. Falls back to the env var
+        # VERITYFLUX_ESCALATION_PLATEAU_TOLERANCE when not passed explicitly.
+        if escalation_plateau_tolerance is None:
+            raw = os.getenv("VERITYFLUX_ESCALATION_PLATEAU_TOLERANCE")
+            escalation_plateau_tolerance = float(raw) if raw not in (None, "") else None
+        self.escalation_plateau_tolerance = escalation_plateau_tolerance
         self.drift_detector = SemanticDriftDetector()
         self._sessions: Dict[str, SessionState] = {}
 
@@ -180,6 +191,7 @@ class StatefulIntentTracker:
                     escalation_threshold=self.elevated_threshold,
                     min_consecutive_increases=3,
                     window_size=self.window_size,
+                    plateau_tolerance=self.escalation_plateau_tolerance,
                 )
             turning_point_flagged = state.decay_delta_tracker.update(current_drift).is_turning_point
 
