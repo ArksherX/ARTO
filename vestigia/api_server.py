@@ -1032,12 +1032,19 @@ async def health_check():
     """Return service health including ledger validity."""
     ledger = _get_ledger()
     stats = ledger.get_statistics()
+    # Integrity is checked for real, not read from a constant. To bound the cost
+    # on frequent health polls, the result is cached for a TTL window; stale or
+    # first-call checks recompute. VESTIGIA_HEALTH_FULL=true forces a check every
+    # call. A tampered ledger is therefore reflected within the TTL by default,
+    # rather than never (the prior default returned a hardcoded True).
     full_check = os.getenv("VESTIGIA_HEALTH_FULL", "false").lower() in ("1", "true", "yes")
+    ttl = float(os.getenv("VESTIGIA_HEALTH_INTEGRITY_TTL", "30"))
     global _last_integrity_check_ts, _last_integrity_ok
-    if full_check:
+    now = time.monotonic()
+    if full_check or _last_integrity_check_ts == 0.0 or (now - _last_integrity_check_ts) >= ttl:
         is_valid, _ = ledger.verify_integrity()
         _last_integrity_ok = bool(is_valid)
-        _last_integrity_check_ts = time.monotonic()
+        _last_integrity_check_ts = now
     else:
         is_valid = _last_integrity_ok
 
@@ -1163,6 +1170,11 @@ async def verify_integrity(request: Request):
         }
         for issue in report.issues
     ]
+
+    # Refresh the cached health signal so /health reflects this result immediately.
+    global _last_integrity_check_ts, _last_integrity_ok
+    _last_integrity_ok = bool(report.is_valid)
+    _last_integrity_check_ts = time.monotonic()
 
     return IntegrityResponse(
         is_valid=report.is_valid,

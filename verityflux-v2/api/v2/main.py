@@ -4767,6 +4767,20 @@ async def score_adversarial(req: ScoreAdversarialRequest, user: Dict = Depends(g
     """Score input text for adversarial intent."""
     scorer = _get_adversarial_scorer()
     result = scorer.score_input(req.input_text, req.context)
+    # Emit security-relevant detections to the audit ledger (fail-open, gated on
+    # integration being enabled). Only adversarial verdicts are emitted, so
+    # benign high-volume traffic does not flood the ledger or the event loop.
+    if result.is_adversarial:
+        _emit_integration_event(
+            event_type="adversarial_detected",
+            agent_id=str((req.context or {}).get("agent_id", "unknown")),
+            status="BLOCKED",
+            reason=result.intent_class,
+            evidence={"summary": f"adversarial input scored {result.intent_class}",
+                      "hostility_score": result.hostility_score},
+            governance={"stage": "detected", "decision": "flag",
+                        "component": "verityflux", "control_family": "adversarial_scorer"},
+        )
     return {
         "hostility_score": result.hostility_score,
         "risk_score": round(float(result.hostility_score) * 100.0, 2),
@@ -4798,6 +4812,22 @@ async def track_session_interaction(
         agent_response=req.agent_response,
         tool_calls=req.tool_calls,
     )
+    # Emit on escalation only (crescendo or decay-delta turning point), so the
+    # audit ledger records the trajectory decisions, not every benign turn.
+    if result.is_crescendo or result.turning_point_flagged:
+        _emit_integration_event(
+            event_type="trajectory_escalation",
+            agent_id=req.agent_id,
+            status="ALERT",
+            reason=result.alert_level,
+            session_id=session_id,
+            evidence={"summary": result.explanation,
+                      "drift_score": result.drift_score,
+                      "is_crescendo": result.is_crescendo,
+                      "turning_point_flagged": result.turning_point_flagged},
+            governance={"stage": "detected", "decision": "escalate",
+                        "component": "verityflux", "control_family": "trajectory_monitor"},
+        )
     return {
         "drift_score": result.drift_score,
         "drift_rate": result.drift_rate,
