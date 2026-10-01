@@ -92,6 +92,7 @@ class TestTurningPointFlaggedAPIExposure:
                 "user_input": "hello",
                 "agent_response": "hi there",
             },
+            headers={"Authorization": "Bearer test-token"},
         )
         assert response.status_code == 200
         data = response.json()

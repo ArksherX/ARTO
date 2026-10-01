@@ -26,3 +26,4 @@ black==24.1.1
 # Production dependencies
 redis==5.0.1
 streamlit-autorefresh==1.0.1
+psutil>=5.9.0

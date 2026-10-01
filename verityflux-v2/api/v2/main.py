@@ -4731,7 +4731,7 @@ class ScoreAdversarialRequest(BaseModel):
     context: Optional[Dict[str, Any]] = None
 
 @app.post("/api/v2/score/adversarial", tags=["Enterprise"])
-async def score_adversarial(req: ScoreAdversarialRequest):
+async def score_adversarial(req: ScoreAdversarialRequest, user: Dict = Depends(get_current_user)):
     """Score input text for adversarial intent."""
     scorer = _get_adversarial_scorer()
     result = scorer.score_input(req.input_text, req.context)
@@ -4754,7 +4754,9 @@ class TrackInteractionRequest(BaseModel):
     tool_calls: Optional[List[Dict[str, Any]]] = None
 
 @app.post("/api/v2/session/{session_id}/track", tags=["Enterprise"])
-async def track_session_interaction(session_id: str, req: TrackInteractionRequest):
+async def track_session_interaction(
+    session_id: str, req: TrackInteractionRequest, user: Dict = Depends(get_current_user)
+):
     """Track an interaction within a session for drift monitoring."""
     tracker = _get_intent_tracker()
     result = tracker.track_interaction(
@@ -5526,11 +5528,17 @@ if __name__ == "__main__":
     if certfile and keyfile:
         ssl_kwargs = {"ssl_certfile": certfile, "ssl_keyfile": keyfile}
 
+    # reload and workers are env-gated. Defaults are production-safe:
+    # reload off (it is a dev file-watcher), and a worker count that can be
+    # raised for horizontal concurrency behind a process manager.
+    _reload = os.getenv("VERITYFLUX_RELOAD", "false").lower() in ("1", "true", "yes")
+    _workers = int(os.getenv("VERITYFLUX_WORKERS", "1"))
+    _run_kwargs = {"reload": True} if _reload else {"workers": _workers}
     uvicorn.run(
         "api.v2.main:app",
         host="0.0.0.0",
         port=int(os.getenv("VERITYFLUX_PORT", "8003")),
-        reload=True,
         log_level="info",
+        **_run_kwargs,
         **ssl_kwargs,
     )
