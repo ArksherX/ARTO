@@ -2231,20 +2231,83 @@ async def _rate_limit(request: Request, call_next):
 _MAX_BODY_BYTES = int(os.getenv("VERITYFLUX_MAX_BODY_BYTES", str(1 * 1024 * 1024)))
 
 
-@app.middleware("http")
-async def _limit_body_size(request: Request, call_next):
-    cl = request.headers.get("content-length")
-    if cl is not None:
-        try:
-            if int(cl) > _MAX_BODY_BYTES:
-                return JSONResponse(
-                    status_code=413,
-                    content={"error": "Request body too large",
-                             "max_bytes": _MAX_BODY_BYTES, "code": "413"},
-                )
-        except ValueError:
-            pass
-    return await call_next(request)
+class _BodySizeLimitMiddleware:
+    """Cap the request body by bytes actually received, not just Content-Length.
+
+    A header-only check (the previous implementation) is bypassable: an HTTP/1.1
+    client can omit Content-Length and stream a chunked body of any size, so the
+    `if cl > limit` branch never fires. This counts bytes as the body arrives and
+    rejects with 413 the moment the cap is exceeded, then replays the buffered
+    body downstream so ordinary handlers read it unchanged. Buffering is bounded
+    by the cap, so an oversized body is cut off rather than held in full.
+    """
+
+    def __init__(self, app, max_bytes: int):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+
+        # Fast path: reject an honest, oversized Content-Length without reading.
+        for name, value in scope.get("headers") or []:
+            if name == b"content-length":
+                try:
+                    if int(value) > self.max_bytes:
+                        return await self._reject(send)
+                except ValueError:
+                    pass
+                break
+
+        body = bytearray()
+        pending = None  # a non-request message (e.g. disconnect) seen while buffering
+        over = False
+        while True:
+            message = await receive()
+            if message["type"] == "http.request":
+                body += message.get("body", b"")
+                if len(body) > self.max_bytes:
+                    over = True
+                    break
+                if not message.get("more_body", False):
+                    break
+            else:
+                pending = message
+                break
+
+        if over:
+            return await self._reject(send)
+
+        replayed = False
+
+        async def replay():
+            nonlocal replayed, pending
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": bytes(body), "more_body": False}
+            if pending is not None:
+                msg, pending = pending, None
+                return msg
+            return await receive()
+
+        await self.app(scope, replay, send)
+
+    async def _reject(self, send):
+        payload = json.dumps({
+            "error": "Request body too large",
+            "max_bytes": self.max_bytes, "code": "413",
+        }).encode()
+        await send({
+            "type": "http.response.start",
+            "status": 413,
+            "headers": [[b"content-type", b"application/json"],
+                        [b"content-length", str(len(payload)).encode()]],
+        })
+        await send({"type": "http.response.body", "body": payload})
+
+
+app.add_middleware(_BodySizeLimitMiddleware, max_bytes=_MAX_BODY_BYTES)
 
 
 # CORS middleware
