@@ -9,3 +9,7 @@ to exercise the secure path without this file overriding them.
 import os
 
 os.environ.setdefault("VERITYFLUX_DEV_AUTH", "true")
+
+# Rate limiting off for the suite: tests burst many requests from one client
+# in a single window and would otherwise trip the limiter. Production defaults on.
+os.environ.setdefault("VERITYFLUX_RATE_LIMIT_ENABLED", "false")

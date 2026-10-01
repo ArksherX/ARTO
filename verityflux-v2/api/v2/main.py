@@ -2069,6 +2069,65 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Rate limiting. Uses the existing core.rate_limiting sliding-window limiter
+# (Redis-backed with in-memory fallback). Enabled by default for availability
+# protection; set VERITYFLUX_RATE_LIMIT_ENABLED=false to defer to an upstream
+# proxy/ingress limiter. Health/readiness/metrics are never limited so
+# orchestration polling is unaffected.
+_RATE_LIMIT_SKIP_PATHS = {"/health", "/ready", "/metrics", "/", "/docs", "/openapi.json"}
+_rate_limiter_singleton = None
+
+
+def _rate_limit_enabled() -> bool:
+    return os.getenv("VERITYFLUX_RATE_LIMIT_ENABLED", "true").lower() in ("1", "true", "yes")
+
+
+def _get_rate_limiter():
+    global _rate_limiter_singleton
+    if _rate_limiter_singleton is None:
+        from core.rate_limiting import InMemoryRateLimiter, RateLimitConfig
+        _rate_limiter_singleton = InMemoryRateLimiter(RateLimitConfig.from_env())
+    return _rate_limiter_singleton
+
+
+def _rate_limit_endpoint_hint(path: str):
+    if "/auth" in path:
+        return "auth"
+    if "/scan" in path:
+        return "scan"
+    if "/approval" in path:
+        return "approval"
+    return None
+
+
+@app.middleware("http")
+async def _rate_limit(request: Request, call_next):
+    if not _rate_limit_enabled() or request.url.path in _RATE_LIMIT_SKIP_PATHS:
+        return await call_next(request)
+    identifier = (
+        request.headers.get("x-api-key")
+        or request.headers.get("authorization")
+        or (request.client.host if request.client else "unknown")
+    )
+    try:
+        allowed, headers = _get_rate_limiter().is_allowed(
+            identifier, endpoint=_rate_limit_endpoint_hint(request.url.path)
+        )
+    except Exception:
+        # Limiter failure must never block traffic.
+        return await call_next(request)
+    if not allowed:
+        return JSONResponse(status_code=429,
+                            content={"error": "Rate limit exceeded", "code": "429"},
+                            headers={k: str(v) for k, v in headers.items()})
+    response = await call_next(request)
+    for k, v in headers.items():
+        response.headers.setdefault(k, str(v))
+    return response
+
+
+# Request body-size cap.
+
 # Request body-size cap. The detection endpoints read only a bounded prefix of
 # the input, so there is no reason to accept large bodies; an uncapped body is
 # wasted work and a cheap resource-exhaustion vector. Rejects over the limit
