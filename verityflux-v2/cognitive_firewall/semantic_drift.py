@@ -195,8 +195,13 @@ class SemanticDriftDetector:
         
         if norm1 == 0 or norm2 == 0:
             return 0.0
-        
-        return dot_product / (norm1 * norm2)
+
+        # Cast to a native float. np.dot / np.linalg.norm return numpy.float64,
+        # which otherwise propagates through drift_score and into the API
+        # response, where some JSON encoders cannot serialize numpy scalars
+        # (a 500 on exactly the turning-point path). Returning float here makes
+        # drift_score, similarity, and exceeds_threshold native downstream.
+        return float(dot_product / (norm1 * norm2))
     
     def _analyze_chain_drift(
         self,

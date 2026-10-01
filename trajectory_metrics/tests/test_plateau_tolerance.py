@@ -50,3 +50,26 @@ def test_tolerant_mode_breaks_run_on_real_decline():
 def test_negative_tolerance_rejected():
     with pytest.raises(ValueError):
         TrajectoryTracker(plateau_tolerance=-0.1)
+
+
+def test_numpy_scores_yield_native_python_types():
+    """A numpy-scalar score must not leak numpy types into the result.
+
+    The real VerityFlux drift detector returns numpy.float64; left as-is it
+    propagated into the API response and some JSON encoders reject numpy
+    scalars (a 500 exactly on the turning-point path). The primitive now casts
+    to native types regardless of input.
+    """
+    np = pytest.importorskip("numpy")
+    tol = TrajectoryTracker(
+        escalation_threshold=0.25, min_consecutive_increases=3, plateau_tolerance=0.02
+    )
+    fired = None
+    for s in [np.float64(x) for x in (0.1, 0.3, 0.5, 0.5, 0.5)]:
+        r = tol.update(s)
+        if r.is_turning_point:
+            fired = r
+    assert fired is not None
+    assert type(fired.is_turning_point) is bool
+    assert type(fired.delta) is float
+    assert type(fired.score) is float

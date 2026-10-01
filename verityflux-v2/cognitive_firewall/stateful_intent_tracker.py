@@ -163,7 +163,10 @@ class StatefulIntentTracker:
             predicted_action=agent_response,
         )
 
-        current_drift = drift_result["drift_score"]
+        # Native float: the drift detector returns a Python float, but cast
+        # defensively so any drift source keeps the result JSON-serializable
+        # (numpy scalars otherwise propagate into the API response).
+        current_drift = float(drift_result["drift_score"])
         state.drift_history.append(current_drift)
         state.current_drift = current_drift
 

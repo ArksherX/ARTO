@@ -100,6 +100,11 @@ class TrajectoryTracker:
         """
         if not 0.0 <= score <= 1.0:
             raise ValueError(f"score must be in [0.0, 1.0], got {score!r}")
+        # Normalize to a native float so results stay JSON-serializable even
+        # when the caller's per-turn scorer hands us a numpy scalar (numpy
+        # scalars propagate through delta and the comparisons below and some
+        # JSON encoders reject them). Keeps this primitive framework-agnostic.
+        score = float(score)
 
         previous = self._history[-1] if self._history else None
         delta = 0.0 if previous is None else score - previous
@@ -125,7 +130,7 @@ class TrajectoryTracker:
             turn_index=self._turn_count,
             score=score,
             delta=delta,
-            is_turning_point=fires_now,
+            is_turning_point=bool(fires_now),
             consecutive_increases=consecutive_increases,
         )
 
