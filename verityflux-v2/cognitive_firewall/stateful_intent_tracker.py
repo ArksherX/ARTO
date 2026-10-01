@@ -168,9 +168,11 @@ class StatefulIntentTracker:
         # Detect crescendo pattern (accelerating drift)
         is_crescendo = self._detect_crescendo(state.drift_history)
 
-        # Decay-delta turning-point verdict (additive; independent cross-check
-        # via trajectory_metrics — does not influence alert_level/flagged_turns
-        # below, which remain governed by the existing logic unchanged).
+        # Decay-delta turning-point verdict via trajectory_metrics. This is the
+        # real turn-over-turn trajectory signal (a sustained run of rising
+        # drift), as opposed to the per-turn static drift score. It now feeds
+        # the headline crescendo/alert below so a genuine escalation counts even
+        # if the per-turn pattern detector does not fire.
         turning_point_flagged = False
         if _DecayDeltaTracker is not None:
             if state.decay_delta_tracker is None:
@@ -180,6 +182,9 @@ class StatefulIntentTracker:
                     window_size=self.window_size,
                 )
             turning_point_flagged = state.decay_delta_tracker.update(current_drift).is_turning_point
+
+        # The real trajectory signal strengthens, never weakens, the verdict.
+        is_crescendo = is_crescendo or turning_point_flagged
 
         # Open an escalation contract on a flagged turning point (additive;
         # only runs if a store was actually configured, and never raises
@@ -201,19 +206,29 @@ class StatefulIntentTracker:
                     exc_info=True,
                 )
 
-        # Update alert level
-        if current_drift >= self.critical_threshold or is_crescendo:
+        # Alert level is driven by the TRAJECTORY, not the absolute per-turn
+        # static drift score. The static score is high even for steady, benign
+        # conversation (it measures similarity to the original goal, which drifts
+        # for innocuous reasons), so thresholding it directly produced persistent
+        # false "critical". Instead:
+        #   turn 1              -> baseline, normal (no trajectory yet)
+        #   escalating + high   -> critical (a crescendo/turning point, or drift
+        #                          actively rising into the critical band)
+        #   escalating + mid    -> elevated (drift rising into the elevated band)
+        #   flat or declining   -> normal, regardless of absolute value
+        # A single-turn hostile input is the adversarial scorer's job; this
+        # tracker only judges movement across turns.
+        rising = drift_rate > 1e-9
+        if state.turn_count <= 1:
+            state.alert_level = "normal"
+        elif is_crescendo or (rising and current_drift >= self.critical_threshold):
             state.alert_level = "critical"
             state.flagged_turns.append(state.turn_count)
-        elif current_drift >= self.elevated_threshold:
+        elif rising and current_drift >= self.elevated_threshold:
             state.alert_level = "elevated"
             state.flagged_turns.append(state.turn_count)
         else:
-            # Only relax if recent drift is low
-            if len(state.drift_history) >= 3:
-                recent_avg = sum(state.drift_history[-3:]) / 3
-                if recent_avg < self.elevated_threshold:
-                    state.alert_level = "normal"
+            state.alert_level = "normal"
 
         explanation = self._build_explanation(
             current_drift, drift_rate, is_crescendo, state
