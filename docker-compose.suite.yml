@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   redis:
     image: redis:7-alpine
@@ -11,7 +9,7 @@ services:
     working_dir: /app
     volumes:
       - ./vestigia:/app
-    command: ["bash", "-lc", "pip install -r requirements.txt && python api_server.py"]
+    command: ["bash", "-lc", "apt-get update && apt-get install -y --no-install-recommends gcc g++ libpq-dev && pip install -r requirements.txt && python api_server.py"]
     environment:
       VESTIGIA_PORT: "8002"
       VESTIGIA_API_KEY: "dev-vestigia-key"
@@ -25,7 +23,7 @@ services:
     working_dir: /app
     volumes:
       - ./tessera:/app
-    command: ["bash", "-lc", "pip install -r requirements.txt && python api_server.py"]
+    command: ["bash", "-lc", "apt-get update && apt-get install -y --no-install-recommends gcc g++ libpq-dev && pip install -r requirements.txt && python api_server.py"]
     environment:
       TESSERA_PORT: "8001"
       MLRT_INTEGRATION_ENABLED: "true"
@@ -42,7 +40,7 @@ services:
     working_dir: /app
     volumes:
       - ./verityflux-v2:/app
-    command: ["bash", "-lc", "pip install -r requirements.txt && python api/v2/main.py"]
+    command: ["bash", "-lc", "apt-get update && apt-get install -y --no-install-recommends gcc g++ libpq-dev && pip install -r requirements.txt && python api/v2/main.py"]
     environment:
       VERITYFLUX_PORT: "8003"
       MLRT_INTEGRATION_ENABLED: "true"
@@ -62,7 +60,7 @@ services:
       - ./shared:/shared:ro
     environment:
       PYTHONPATH: "/"
-    command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run web_ui/tessera_dashboard.py --server.headless true"]
+    command: ["bash", "-lc", "apt-get update && apt-get install -y --no-install-recommends gcc g++ libpq-dev && pip install -r requirements.txt && streamlit run web_ui/tessera_dashboard.py --server.headless true"]
     ports:
       - "8501:8501"
     depends_on:
@@ -77,7 +75,7 @@ services:
       - ./shared:/shared:ro
     environment:
       PYTHONPATH: "/"
-    command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run dashboard.py --server.headless true"]
+    command: ["bash", "-lc", "apt-get update && apt-get install -y --no-install-recommends gcc g++ libpq-dev && pip install -r requirements.txt && streamlit run dashboard.py --server.headless true"]
     ports:
       - "8502:8502"
     depends_on:
@@ -92,7 +90,7 @@ services:
       - ./shared:/shared:ro
     environment:
       PYTHONPATH: "/"
-    command: ["bash", "-lc", "pip install -r requirements.txt && streamlit run ui/streamlit/app.py --server.headless true"]
+    command: ["bash", "-lc", "apt-get update && apt-get install -y --no-install-recommends gcc g++ libpq-dev && pip install -r requirements.txt && streamlit run ui/streamlit/app.py --server.headless true"]
     ports:
       - "8503:8503"
     depends_on:
