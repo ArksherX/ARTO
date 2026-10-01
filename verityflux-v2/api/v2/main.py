@@ -160,8 +160,19 @@ def _configured_api_keys() -> Dict[str, Dict[str, Any]]:
     return keys
 
 
+def _dev_auth_enabled() -> bool:
+    """Whether permissive development authentication is enabled.
+
+    Controls the two insecure-by-convenience auth paths: the arbitrary-bearer
+    admin fallback and the vf_/vf_admin_ API-key prefix shortcut. Defaults to
+    FALSE (secure): production rejects credentials it cannot actually verify.
+    Set VERITYFLUX_DEV_AUTH=true only for local development and tests.
+    """
+    return os.getenv("VERITYFLUX_DEV_AUTH", "false").lower() in ("1", "true", "yes")
+
+
 def _allow_legacy_key_prefixes() -> bool:
-    return not _strict_prod_mode()
+    return _dev_auth_enabled()
 
 
 def _jwt_secret() -> str:
@@ -2137,14 +2148,17 @@ async def get_current_user(
         jwt_user = _decode_jwt_user(token)
         if jwt_user:
             return jwt_user
-        if not _strict_prod_mode():
+        if _dev_auth_enabled():
+            # Development convenience only: accept any bearer as admin. Gated so
+            # production (VERITYFLUX_DEV_AUTH unset) never grants access on an
+            # unverifiable token.
             return {
                 "user_id": "jwt-user",
                 "organization_id": "org-123",
                 "role": "admin",
                 "permissions": ["read", "write", "admin"],
             }
-        logger.warning("JWT auth attempted in strict production mode without a configured validator")
+        logger.warning("Bearer token could not be verified and dev auth is disabled; rejecting")
     
     raise HTTPException(
         status_code=401,
