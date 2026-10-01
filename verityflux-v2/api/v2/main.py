@@ -4414,7 +4414,7 @@ class InterceptReasoningRequest(BaseModel):
     handoff_metadata: Optional[Dict[str, Any]] = None
 
 @app.post("/api/v2/intercept/reasoning", tags=["Enterprise"])
-async def intercept_reasoning(req: InterceptReasoningRequest):
+async def intercept_reasoning(req: InterceptReasoningRequest, user: Dict = Depends(get_current_user)):
     """Intercept and evaluate an agent's reasoning block in real-time."""
     interceptor = _get_reasoning_interceptor()
     result = interceptor.intercept_reasoning(
@@ -4506,7 +4506,7 @@ class InterceptToolCallRequest(BaseModel):
     sandbox_attested: bool = False
 
 @app.post("/api/v2/intercept/tool-call", tags=["Enterprise"])
-async def intercept_tool_call(req: InterceptToolCallRequest):
+async def intercept_tool_call(req: InterceptToolCallRequest, user: Dict = Depends(get_current_user)):
     """Intercept a tool call before execution."""
     identity_result = {"valid": True, "reason": "not_provided"}
     if req.mcp_tool_token:
@@ -4701,7 +4701,7 @@ class RationalizeRequest(BaseModel):
     agent_context: Optional[Dict[str, Any]] = None
 
 @app.post("/api/v2/rationalize", tags=["Enterprise"])
-async def rationalize_action(req: RationalizeRequest):
+async def rationalize_action(req: RationalizeRequest, user: Dict = Depends(get_current_user)):
     """Run independent LLM-as-a-Judge rationalization on a proposed action."""
     engine = _get_rationalization_engine()
     result = engine.rationalize(
@@ -4736,7 +4736,7 @@ class FilterMemoryRequest(BaseModel):
     agent_context: Optional[Dict[str, Any]] = None
 
 @app.post("/api/v2/filter/memory", tags=["Enterprise"])
-async def filter_memory(req: FilterMemoryRequest):
+async def filter_memory(req: FilterMemoryRequest, user: Dict = Depends(get_current_user)):
     """Filter RAG/memory retrievals for poisoning and injection."""
     mf = _get_memory_filter()
     result = mf.filter_retrievals(req.retrievals, req.agent_context)
@@ -4924,7 +4924,7 @@ async def track_session_interaction(
     }
 
 @app.get("/api/v2/session/{session_id}/state", tags=["Enterprise"])
-async def get_session_state(session_id: str):
+async def get_session_state(session_id: str, user: Dict = Depends(get_current_user)):
     """Get current drift state for a session."""
     tracker = _get_intent_tracker()
     state = tracker.get_session_state(session_id)
@@ -4941,7 +4941,9 @@ async def get_session_state(session_id: str):
 
 
 @app.get("/api/v2/sessions", tags=["Enterprise"])
-async def list_session_states(limit: int = Query(default=100, ge=1, le=500)):
+async def list_session_states(
+    limit: int = Query(default=100, ge=1, le=500), user: Dict = Depends(get_current_user)
+):
     """List active tracked sessions for the Session Drift dashboard."""
     tracker = _get_intent_tracker()
     sessions: List[Dict[str, Any]] = []
@@ -4959,7 +4961,7 @@ async def list_session_states(limit: int = Query(default=100, ge=1, le=500)):
 
 
 @app.get("/api/v2/telemetry/reasoning", tags=["Enterprise"])
-async def list_reasoning_telemetry(limit: int = Query(default=100, ge=1, le=1000)):
+async def list_reasoning_telemetry(limit: int = Query(default=100, ge=1, le=1000), user: Dict = Depends(get_current_user)):
     """Recent reasoning/tool-call interception telemetry from flight logs."""
     activity: List[Dict[str, Any]] = []
     try:
@@ -4992,7 +4994,7 @@ async def list_reasoning_telemetry(limit: int = Query(default=100, ge=1, le=1000
 
 
 @app.get("/api/v2/telemetry/rationalizations", tags=["Enterprise"])
-async def list_rationalizations(limit: int = Query(default=100, ge=1, le=1000)):
+async def list_rationalizations(limit: int = Query(default=100, ge=1, le=1000), user: Dict = Depends(get_current_user)):
     """Recent rationalization results from oversight model evaluations."""
     return list(reversed(RATIONALE_LOG[-limit:]))
 
@@ -5268,7 +5270,7 @@ class SignManifestRequest(BaseModel):
     manifest: Dict[str, Any]
 
 @app.post("/api/v2/tools/sign", tags=["Enterprise"])
-async def sign_tool_manifest(req: SignManifestRequest):
+async def sign_tool_manifest(req: SignManifestRequest, user: Dict = Depends(get_current_user)):
     """Cryptographically sign a tool manifest."""
     signer = _get_manifest_signer()
     signed = signer.sign_manifest(req.manifest)
@@ -5287,7 +5289,7 @@ class VerifyManifestRequest(BaseModel):
     signed_at: str
 
 @app.post("/api/v2/tools/verify", tags=["Enterprise"])
-async def verify_tool_manifest(req: VerifyManifestRequest):
+async def verify_tool_manifest(req: VerifyManifestRequest, user: Dict = Depends(get_current_user)):
     """Verify a signed tool manifest's integrity."""
     from cognitive_firewall.tool_manifest_signer import SignedManifest
     signer = _get_manifest_signer()
@@ -5334,7 +5336,7 @@ class AIBOMRegisterRequest(BaseModel):
     metadata: Optional[Dict[str, Any]] = None
 
 @app.post("/api/v2/aibom/register", tags=["Enterprise"])
-async def register_aibom_component(req: AIBOMRegisterRequest):
+async def register_aibom_component(req: AIBOMRegisterRequest, user: Dict = Depends(get_current_user)):
     """Register a component in the AI Bill of Materials."""
     sc = _get_supply_chain()
     entry = sc.register_component(
@@ -5357,14 +5359,14 @@ class AIBOMVerifyRequest(BaseModel):
     component_id: str
 
 @app.post("/api/v2/aibom/verify", tags=["Enterprise"])
-async def verify_aibom_component(req: AIBOMVerifyRequest):
+async def verify_aibom_component(req: AIBOMVerifyRequest, user: Dict = Depends(get_current_user)):
     """Verify a component's integrity."""
     sc = _get_supply_chain()
     result = sc.verify_component(req.component_id)
     return result
 
 @app.get("/api/v2/aibom", tags=["Enterprise"])
-async def get_aibom():
+async def get_aibom(user: Dict = Depends(get_current_user)):
     """Get the full AI Bill of Materials."""
     sc = _get_supply_chain()
     return sc.generate_aibom()
@@ -5404,7 +5406,7 @@ class EvaluateActionRequest(BaseModel):
 
 
 @app.post("/api/v2/evaluate", tags=["Enterprise"])
-async def evaluate_action(req: EvaluateActionRequest):
+async def evaluate_action(req: EvaluateActionRequest, user: Dict = Depends(get_current_user)):
     """
     Unified agent action evaluation.
 

@@ -6875,6 +6875,14 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Aibom",
         "tags": [
           "Enterprise"
@@ -6915,6 +6923,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Register Aibom Component",
         "tags": [
           "Enterprise"
@@ -6955,6 +6971,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Verify Aibom Component",
         "tags": [
           "Enterprise"
@@ -7067,6 +7091,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Evaluate Action",
         "tags": [
           "Enterprise"
@@ -7107,6 +7139,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Filter Memory",
         "tags": [
           "Enterprise"
@@ -7147,6 +7187,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Intercept Reasoning",
         "tags": [
           "Enterprise"
@@ -7187,6 +7235,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Intercept Tool Call",
         "tags": [
           "Enterprise"
@@ -7395,6 +7451,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Rationalize Action",
         "tags": [
           "Enterprise"
@@ -7484,6 +7548,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Session State",
         "tags": [
           "Enterprise"
@@ -7587,6 +7659,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Session States",
         "tags": [
           "Enterprise"
@@ -7924,6 +8004,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Rationalizations",
         "tags": [
           "Enterprise"
@@ -7968,6 +8056,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Reasoning Telemetry",
         "tags": [
           "Enterprise"
@@ -8008,6 +8104,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Sign Tool Manifest",
         "tags": [
           "Enterprise"
@@ -8048,6 +8152,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Verify Tool Manifest",
         "tags": [
           "Enterprise"
