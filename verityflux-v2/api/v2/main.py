@@ -128,7 +128,16 @@ def _build_allowed_origins() -> List[str]:
     if _strict_prod_mode():
         logger.warning("VERITYFLUX_ALLOWED_ORIGINS not set in strict production mode; defaulting to deny-all CORS")
         return []
-    return ["*"]
+    # Dev default: explicit localhost origins only. Never "*", because it is
+    # paired with allow_credentials=True below, and a wildcard+credentials CORS
+    # policy is reflected back per-origin (a high-severity misconfiguration).
+    # Set VERITYFLUX_ALLOWED_ORIGINS for any non-localhost caller.
+    logger.warning("VERITYFLUX_ALLOWED_ORIGINS not set; defaulting to localhost dev origins only")
+    return [
+        "http://localhost:3000", "http://localhost:8501",
+        "http://localhost:8502", "http://localhost:8503",
+        "http://127.0.0.1:3000",
+    ]
 
 
 def _configured_api_keys() -> Dict[str, Dict[str, Any]]:
@@ -2048,6 +2057,29 @@ app = FastAPI(
     redoc_url="/redoc",
     lifespan=lifespan,
 )
+
+# Request body-size cap. The detection endpoints read only a bounded prefix of
+# the input, so there is no reason to accept large bodies; an uncapped body is
+# wasted work and a cheap resource-exhaustion vector. Rejects over the limit
+# with 413 before the handler runs. Override with VERITYFLUX_MAX_BODY_BYTES.
+_MAX_BODY_BYTES = int(os.getenv("VERITYFLUX_MAX_BODY_BYTES", str(1 * 1024 * 1024)))
+
+
+@app.middleware("http")
+async def _limit_body_size(request: Request, call_next):
+    cl = request.headers.get("content-length")
+    if cl is not None:
+        try:
+            if int(cl) > _MAX_BODY_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={"error": "Request body too large",
+                             "max_bytes": _MAX_BODY_BYTES, "code": "413"},
+                )
+        except ValueError:
+            pass
+    return await call_next(request)
+
 
 # CORS middleware
 app.add_middleware(
