@@ -43,6 +43,18 @@ export TESSERA_REQUIRE_REGISTRATION_AUTH=true
 
 # Refuse to serve the evidence API if no API key is set, rather than allow-all.
 export VESTIGIA_FAIL_CLOSED=true
+
+# Require a second operator to decide an approval the first one requested
+# (four-eyes). Enable wherever more than one operator exists.
+export VERITYFLUX_REQUIRE_DUAL_CONTROL=true
+
+# Webhook signing secrets. Set the ones you actually receive from; in strict
+# production an inbound webhook with no configured secret is rejected (503),
+# and any configured provider requires a valid HMAC signature.
+export VERITYFLUX_SLACK_SIGNING_SECRET='<slack-signing-secret>'
+export VERITYFLUX_STRIPE_WEBHOOK_SECRET='<stripe-whsec>'
+export VERITYFLUX_JIRA_WEBHOOK_SECRET='<jira-webhook-secret>'
+export VERITYFLUX_PAGERDUTY_WEBHOOK_SECRET='<pagerduty-v3-secret>'
 ```
 
 ## Optional But Common
@@ -150,4 +162,6 @@ Strict preflight now checks:
 - `VESTIGIA_TENANT_SCOPED_STORAGE=true` stores access-audit and risk-history file data under tenant-specific directories when multi-tenant mode is enabled.
 - `TESSERA_REQUIRE_REGISTRATION_AUTH=true` requires the admin bearer key for `/agents/register` and `/tokens/request`. Without it, those endpoints are open and anyone who can reach the API can self-register a broadly-scoped agent and mint valid tokens — bypassing scoped authority. Enable in any environment where the Tessera API is network-reachable. Default off so local/demo self-registration keeps working.
 - `VESTIGIA_FAIL_CLOSED=true` makes the evidence API return `503` when `VESTIGIA_API_KEY` is unset, instead of allowing all requests ("development mode"). Enable it so a deploy that forgets to set the key cannot silently run the audit/evidence API wide open. Always set `VESTIGIA_API_KEY` as well.
+- `VERITYFLUX_REQUIRE_DUAL_CONTROL=true` enforces four-eyes on HITL approvals: the user who requested an approval cannot also decide it (`403`). Default off so single-identity local/dev runs are unchanged. Legacy records created before the requester was recorded cannot be checked and are allowed through; all new records carry the requester.
+- The webhook endpoints (`/api/v1/webhooks/{slack,stripe,jira,pagerduty}`) are bearer-exempt and authenticate by HMAC signature. When a provider's signing secret (`VERITYFLUX_SLACK_SIGNING_SECRET`, `VERITYFLUX_STRIPE_WEBHOOK_SECRET`, `VERITYFLUX_JIRA_WEBHOOK_SECRET`, `VERITYFLUX_PAGERDUTY_WEBHOOK_SECRET`) is set, a valid signature is required; a bad/missing one is rejected (`401`). With no secret set, dev stays permissive but strict production fails closed (`503`). Slack and Stripe additionally enforce a 5-minute timestamp replay window.
 - Vestigia's Merkle witness is on by default and detects in-place tampering and full-ledger rewrites; for rewrite-resistance against an attacker with write access to the data volume, configure an off-box external anchor rather than relying on the local witness file alone.

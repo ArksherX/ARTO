@@ -194,6 +194,17 @@ def _allow_legacy_key_prefixes() -> bool:
     return _dev_auth_enabled()
 
 
+def _dual_control_required() -> bool:
+    """Whether approval dual control (four-eyes) is enforced.
+
+    When enabled, the user who requested an approval cannot also decide it.
+    Defaults FALSE so the single-identity local/dev flow is unchanged; enable
+    VERITYFLUX_REQUIRE_DUAL_CONTROL=true in any environment with more than one
+    operator. See ops/production_env_checklist.md.
+    """
+    return os.getenv("VERITYFLUX_REQUIRE_DUAL_CONTROL", "false").lower() in ("1", "true", "yes")
+
+
 def _jwt_secret() -> str:
     return os.getenv("VERITYFLUX_JWT_SECRET", "")
 
@@ -3898,6 +3909,7 @@ async def request_approval(
     record = {
         "id": request_id,
         "organization_id": _organization_id_from_user(user),
+        "requested_by": user.get("user_id") if isinstance(user, dict) else None,
         "status": resolved_status,
         "risk_level": context.risk_level if hasattr(context, "risk_level") else ("critical" if context.risk_score >= 80 else "high" if context.risk_score >= 60 else "medium"),
         "title": f"{context.agent_name} wants to use {context.tool_name}",
@@ -4020,9 +4032,24 @@ async def decide_approval(
     record = APPROVAL_STORE.get(request_id)
     if not record or _organization_id_from_record(record) != _organization_id_from_user(user):
         raise HTTPException(status_code=404, detail="Approval request not found")
+    decider = user.get("user_id", "admin") if isinstance(user, dict) else "admin"
+
+    # Dual control (four-eyes): the requester of an approval must not also be the
+    # one who decides it. Only enforced when the requester is known -- legacy
+    # records created before requested_by existed cannot be checked and are
+    # allowed through (new records always carry it).
+    if _dual_control_required():
+        requester = record.get("requested_by")
+        if requester is not None and requester == decider:
+            logger.warning("Dual control blocked self-approval by %s on %s", decider, request_id)
+            raise HTTPException(
+                status_code=403,
+                detail="Dual control: the requester of an approval cannot also decide it",
+            )
+
     record["status"] = _decision_to_status(request.decision)
     record["decision"] = request.decision  # keep the raw verb for audit fidelity
-    record["decided_by"] = user.get("user_id", "admin")
+    record["decided_by"] = decider
     record["justification"] = request.justification
     record["decided_at"] = datetime.now(UTC).isoformat()
     _save_approval_store()
