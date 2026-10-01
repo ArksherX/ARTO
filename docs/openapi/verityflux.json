@@ -7435,6 +7435,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Score Adversarial",
         "tags": [
           "Enterprise"
@@ -7527,6 +7535,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Track Session Interaction",
         "tags": [
           "Enterprise"
