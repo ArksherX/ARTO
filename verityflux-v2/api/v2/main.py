@@ -191,6 +191,102 @@ def _jwt_audience() -> Optional[str]:
     return os.getenv("VERITYFLUX_JWT_AUDIENCE") or None
 
 
+# =============================================================================
+# WEBHOOK SIGNATURE VERIFICATION (A7)
+# =============================================================================
+# Inbound webhooks cannot carry a bearer token, so they are allowlisted as
+# public routes and authenticate by HMAC signature instead. Each provider signs
+# the raw request body with a shared secret; we recompute the signature and
+# compare in constant time. Replay is bounded by the provider timestamp where
+# one exists (Slack, Stripe).
+#
+# Secure-by-default, non-breaking: if the provider's secret is configured we
+# ALWAYS verify and reject on failure. If it is NOT configured we fail closed in
+# strict production (503) but stay permissive in dev/non-strict so local runs
+# and tests keep working -- the same idiom as VESTIGIA_FAIL_CLOSED.
+
+_WEBHOOK_REPLAY_WINDOW_SECONDS = 300
+
+
+def _webhook_secret(env_name: str) -> str:
+    return os.getenv(env_name, "")
+
+
+def _fresh_timestamp(raw_ts: str) -> bool:
+    """True if raw_ts is a unix timestamp within the replay window."""
+    try:
+        ts = int(float(raw_ts))
+    except (TypeError, ValueError):
+        return False
+    return abs(datetime.now(UTC).timestamp() - ts) <= _WEBHOOK_REPLAY_WINDOW_SECONDS
+
+
+def _verify_slack_signature(secret: str, body: bytes, timestamp: str, signature: str) -> bool:
+    if not (secret and timestamp and signature):
+        return False
+    if not _fresh_timestamp(timestamp):
+        return False
+    basestring = b"v0:" + timestamp.encode() + b":" + body
+    digest = hmac.new(secret.encode(), basestring, hashlib.sha256).hexdigest()
+    return hmac.compare_digest("v0=" + digest, signature)
+
+
+def _verify_stripe_signature(secret: str, body: bytes, header: str) -> bool:
+    if not (secret and header):
+        return False
+    timestamp = None
+    provided: List[str] = []
+    for item in header.split(","):
+        key, _, value = item.partition("=")
+        key = key.strip()
+        if key == "t":
+            timestamp = value.strip()
+        elif key == "v1":
+            provided.append(value.strip())
+    if not (timestamp and provided and _fresh_timestamp(timestamp)):
+        return False
+    signed = timestamp.encode() + b"." + body
+    expected = hmac.new(secret.encode(), signed, hashlib.sha256).hexdigest()
+    return any(hmac.compare_digest(expected, sig) for sig in provided)
+
+
+def _verify_pagerduty_signature(secret: str, body: bytes, header: str) -> bool:
+    # PagerDuty v3: X-PagerDuty-Signature: "v1=<hex>[,v1=<hex>]"
+    if not (secret and header):
+        return False
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    provided = [p.split("=", 1)[1].strip() for p in header.split(",")
+                if p.strip().startswith("v1=")]
+    return any(hmac.compare_digest(expected, sig) for sig in provided)
+
+
+def _verify_hub_signature(secret: str, body: bytes, header: str) -> bool:
+    # Jira / generic X-Hub-Signature: "sha256=<hex>"
+    if not (secret and header and "=" in header):
+        return False
+    algo, _, provided = header.partition("=")
+    if algo.strip().lower() != "sha256":
+        return False
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, provided.strip())
+
+
+def _enforce_webhook(provider: str, env_name: str, body: bytes, verify) -> None:
+    """Enforce webhook signature policy. Raises HTTPException on rejection.
+
+    verify: a callable taking (secret, body) and returning bool.
+    """
+    secret = _webhook_secret(env_name)
+    if not secret:
+        if _strict_prod_mode():
+            logger.warning("%s webhook secret (%s) not configured in strict mode; rejecting", provider, env_name)
+            raise HTTPException(status_code=503, detail=f"{provider} webhook signing secret not configured")
+        return  # dev / non-strict: preserve existing permissive behaviour
+    if not verify(secret, body):
+        logger.warning("%s webhook signature verification failed", provider)
+        raise HTTPException(status_code=401, detail=f"invalid {provider} webhook signature")
+
+
 def _normalize_permissions(raw: Any) -> List[str]:
     if not raw:
         return ["read"]
@@ -4043,13 +4139,16 @@ async def slack_interactive_webhook(request: Request):
     """
     Handle Slack interactive component callbacks (button clicks)
     """
-    # Verify Slack signature
-    # Parse payload
-    # Process approval decision
-    
     body = await request.body()
-    # payload = json.loads(body)
-    
+    _enforce_webhook(
+        "slack", "VERITYFLUX_SLACK_SIGNING_SECRET", body,
+        lambda secret, b: _verify_slack_signature(
+            secret, b,
+            request.headers.get("X-Slack-Request-Timestamp", ""),
+            request.headers.get("X-Slack-Signature", ""),
+        ),
+    )
+    # payload = json.loads(body)  # process approval decision
     return {"ok": True}
 
 
@@ -4058,12 +4157,21 @@ async def slack_events_webhook(request: Request):
     """
     Handle Slack Events API
     """
-    body = await request.json()
-    
+    body = await request.body()
+    _enforce_webhook(
+        "slack", "VERITYFLUX_SLACK_SIGNING_SECRET", body,
+        lambda secret, b: _verify_slack_signature(
+            secret, b,
+            request.headers.get("X-Slack-Request-Timestamp", ""),
+            request.headers.get("X-Slack-Signature", ""),
+        ),
+    )
+    payload = json.loads(body) if body else {}
+
     # Handle URL verification challenge
-    if body.get("type") == "url_verification":
-        return {"challenge": body.get("challenge")}
-    
+    if payload.get("type") == "url_verification":
+        return {"challenge": payload.get("challenge")}
+
     return {"ok": True}
 
 
@@ -4072,25 +4180,43 @@ async def stripe_webhook(request: Request):
     """
     Handle Stripe webhooks for subscription updates
     """
-    # Verify Stripe signature
-    # Process event
-    
+    body = await request.body()
+    _enforce_webhook(
+        "stripe", "VERITYFLUX_STRIPE_WEBHOOK_SECRET", body,
+        lambda secret, b: _verify_stripe_signature(
+            secret, b, request.headers.get("Stripe-Signature", ""),
+        ),
+    )
     return {"received": True}
 
 
 @app.post("/api/v1/webhooks/jira", tags=["Webhooks"])
-async def jira_webhook(request: WebhookEventRequest):
+async def jira_webhook(request: WebhookEventRequest, raw_request: Request):
     """
     Handle Jira webhooks for ticket updates
     """
+    body = await raw_request.body()
+    _enforce_webhook(
+        "jira", "VERITYFLUX_JIRA_WEBHOOK_SECRET", body,
+        lambda secret, b: _verify_hub_signature(
+            secret, b, raw_request.headers.get("X-Hub-Signature", ""),
+        ),
+    )
     return {"received": True}
 
 
 @app.post("/api/v1/webhooks/pagerduty", tags=["Webhooks"])
-async def pagerduty_webhook(request: WebhookEventRequest):
+async def pagerduty_webhook(request: WebhookEventRequest, raw_request: Request):
     """
     Handle PagerDuty webhooks
     """
+    body = await raw_request.body()
+    _enforce_webhook(
+        "pagerduty", "VERITYFLUX_PAGERDUTY_WEBHOOK_SECRET", body,
+        lambda secret, b: _verify_pagerduty_signature(
+            secret, b, raw_request.headers.get("X-PagerDuty-Signature", ""),
+        ),
+    )
     return {"received": True}
 
 
