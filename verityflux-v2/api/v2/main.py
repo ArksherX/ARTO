@@ -4854,6 +4854,18 @@ async def score_adversarial(req: ScoreAdversarialRequest, user: Dict = Depends(g
             governance={"stage": "detected", "decision": "flag",
                         "component": "verityflux", "control_family": "adversarial_scorer"},
         )
+    elif getattr(result, "requires_review", False):
+        # The scorer could not clear this input (no real classifier available).
+        # Record it rather than silently treating it as benign.
+        _emit_integration_event(
+            event_type="adversarial_unscored",
+            agent_id=str((req.context or {}).get("agent_id", "unknown")),
+            status="REVIEW",
+            reason="scorer_abstained",
+            evidence={"summary": "input could not be scored; requires review"},
+            governance={"stage": "detected", "decision": "review",
+                        "component": "verityflux", "control_family": "adversarial_scorer"},
+        )
     return {
         "hostility_score": result.hostility_score,
         "risk_score": round(float(result.hostility_score) * 100.0, 2),
@@ -4861,6 +4873,7 @@ async def score_adversarial(req: ScoreAdversarialRequest, user: Dict = Depends(g
         "confidence": result.confidence,
         "reasoning": result.reasoning,
         "is_adversarial": result.is_adversarial,
+        "requires_review": getattr(result, "requires_review", False),
     }
 
 

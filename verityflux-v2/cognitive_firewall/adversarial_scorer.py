@@ -26,6 +26,11 @@ class ScorerResult:
     confidence: float  # 0-1
     reasoning: str
     is_adversarial: bool
+    # True when the scorer could NOT actually evaluate the input (unparseable
+    # classifier response, or a non-classifier mock provider). Fail-closed
+    # signal: such input is NOT confidently benign and must not be treated as
+    # cleared. Default False keeps every existing consumer backward-compatible.
+    requires_review: bool = False
 
 
 class AdversarialLLMScorer:
@@ -155,12 +160,40 @@ class AdversarialLLMScorer:
         return None  # Defer to LLM
 
     def _parse_response(self, response: str, original_input: str) -> ScorerResult:
-        """Parse LLM response into ScorerResult."""
+        """Parse a real classifier response into a ScorerResult.
+
+        Fail-closed: if the response does not actually contain a classifier
+        verdict (no HOSTILITY/INTENT fields), or the provider is the mock
+        target-simulator rather than a real classifier, the scorer cannot judge
+        this input. It must NOT then report a confident benign verdict (the old
+        behaviour, which silently cleared anything the keyword pre-screen
+        missed). Such input is returned as requires_review instead.
+        """
         response_lower = response.lower()
+        has_hostility_field = "hostility:" in response_lower
+        has_intent_field = "intent:" in response_lower
+
+        # Abstain when we have no real classifier signal to parse. The mock
+        # provider is a target simulator, not a classifier, so its output is
+        # never an authoritative verdict.
+        if self.llm.is_mock or not (has_hostility_field or has_intent_field):
+            return ScorerResult(
+                hostility_score=0.0,
+                intent_class="unknown",
+                confidence=0.0,
+                reasoning=(
+                    "Scorer could not evaluate this input: no real classifier "
+                    "verdict available (mock provider or unparseable response). "
+                    "Configure VERITYFLUX_SCORER_PROVIDER/API key for real scoring. "
+                    "Treated as requires-review, not benign."
+                ),
+                is_adversarial=False,
+                requires_review=True,
+            )
 
         # Extract hostility score
         hostility = 0.2
-        if "hostility:" in response_lower:
+        if has_hostility_field:
             try:
                 h_part = response_lower.split("hostility:")[1].strip()
                 hostility = float(h_part.split()[0].strip())
@@ -170,7 +203,7 @@ class AdversarialLLMScorer:
 
         # Extract intent class
         intent_class = "benign"
-        if "intent:" in response_lower:
+        if has_intent_field:
             try:
                 i_part = response_lower.split("intent:")[1].strip().split()[0]
                 if i_part in ("benign", "probing", "hostile", "exploit"):
@@ -196,12 +229,11 @@ class AdversarialLLMScorer:
                 pass
 
         is_adversarial = intent_class in ("hostile", "exploit")
-        confidence = 0.7 if not self.llm.is_mock else 0.6
 
         return ScorerResult(
             hostility_score=hostility,
             intent_class=intent_class,
-            confidence=confidence,
+            confidence=0.7,
             reasoning=reasoning,
             is_adversarial=is_adversarial,
         )
