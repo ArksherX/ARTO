@@ -14,6 +14,7 @@ import {
   type TrajectoryModel,
 } from "../data/verityflux";
 import { useLiveStatus, useTrajectory, useDetections, type Source } from "../data/verityflux.live";
+import { LoadingLine } from "../components/states";
 
 const INTENT: Record<Intent, { sev: "crit" | "high" | "med" | "ok" | "review"; label: string }> = {
   exploit: { sev: "crit", label: "Exploit" },
@@ -138,6 +139,7 @@ export default function VerityFlux() {
         }
       />
 
+      <LoadingLine show={trajQ.isPending || detQ.isPending || status.isPending} />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {vfKpis.map((k) => <Kpi key={k.label} label={k.label} value={k.value} tone={k.tone} />)}
       </div>

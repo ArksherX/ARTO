@@ -1,6 +1,7 @@
 import { Card, Chip, Kpi, PageHeader, SourceTag } from "../components/ui";
 import { useTessera } from "../data/tessera.live";
 import { sampleTessera, sampleChain, sampleApprovals, samplePosture } from "../data/tessera";
+import { LoadingLine } from "../components/states";
 
 const SEV: Record<string, string> = { crit: "var(--crit)", high: "var(--high)", med: "var(--med)" };
 
@@ -17,6 +18,7 @@ export default function Tessera() {
         sub={<><span>registration auth required</span><SourceTag source={source} /></>}
       />
 
+      <LoadingLine show={q.isPending} />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Agents governed" value={Number.isNaN(m.agents) ? "—" : m.agents.toLocaleString()} />
         <Kpi label="Active delegations" value={Number.isNaN(m.delegations) ? "—" : m.delegations.toLocaleString()} />

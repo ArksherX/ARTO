@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Card, Chip, Kpi, PageHeader, SampleBadge, SourceTag } from "../components/ui";
 import { overviewKpis as sampleKpis, pillars as samplePillars } from "../data/sample";
 import { useOverview } from "../data/overview.live";
+import { LoadingLine } from "../components/states";
 
 const TONE: Record<string, string> = { ok: "var(--ok)", high: "var(--high)", crit: "var(--crit)" };
 
@@ -30,6 +31,7 @@ export default function Overview() {
         }
       />
 
+      <LoadingLine show={q.isPending} />
       <div className="mb-3 flex items-center gap-2 text-[12px] text-muted">
         <span>{model.posture.detail}</span>
         <SourceTag source={source} />

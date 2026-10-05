@@ -1,6 +1,7 @@
 import { Card, Kpi, PageHeader, SourceTag } from "../components/ui";
 import { useVestigia } from "../data/vestigia.live";
 import { sampleVestigia } from "../data/vestigia";
+import { LoadingLine } from "../components/states";
 
 export default function Vestigia() {
   const q = useVestigia();
@@ -23,6 +24,7 @@ export default function Vestigia() {
         sub={<><span>append-only · hash-chained</span><SourceTag source={source} /></>}
       />
 
+      <LoadingLine show={q.isPending} />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Kpi label="Ledger integrity" value={verifiedLabel} tone={verifiedTone} meta={valid === false ? `${m.integrity.issues.length} issue(s)` : "0 breaks"} />
         <Kpi label="Chain entries" value={Number.isNaN(m.integrity.totalEntries) ? "—" : m.integrity.totalEntries.toLocaleString()} meta="sealed + open" />
