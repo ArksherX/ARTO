@@ -25,6 +25,20 @@ pnpm dev         # http://localhost:5173
 pnpm build       # tsc --noEmit && vite build -> dist/
 ```
 
+### Live data in dev
+
+The API endpoints require auth. For local dev the Vite proxy attaches each
+service's API key (read from the shell env, never bundled into the client), so
+the app sees live data:
+
+```bash
+VERITYFLUX_API_KEY=<key> TESSERA_API_KEY=<key> VESTIGIA_API_KEY=<key> pnpm dev
+```
+
+Without a key, requests 401 and each section falls back to sample data and is
+tagged `sample`. In production the browser sends the signed-in user's bearer
+token instead (auth increment).
+
 In dev, the app calls `/api/<service>/...` and Vite proxies to the local
 services (Tessera 8001, Vestigia 8002, VerityFlux 8003) so the browser makes no
 cross-origin request. Override targets with `TESSERA_API_BASE` etc. In

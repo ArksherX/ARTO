@@ -67,12 +67,14 @@ export function useTrajectory() {
           return { source: "sample", data: sampleTrajectory };
         }
         const points = history.map((v, i) => ({ turn: i + 1, drift: num(v) }));
+        const flagged: unknown[] = Array.isArray(d?.flagged_turns) ? d.flagged_turns : [];
+        const turningPoint = flagged.length ? num(flagged[0], points.length) : points.length;
         return {
           source: "live",
           data: {
             session: String(sid),
-            agent: String(d?.agent_id ?? d?.agent ?? "—"),
-            turningPoint: num(d?.turning_point_turn ?? d?.turning_point, points.length),
+            agent: String(d?.agent_id ?? sessions[0]?.agent_id ?? "—"),
+            turningPoint,
             elevated: num(d?.elevated_threshold, 0.33),
             critical: num(d?.critical_threshold, 0.55),
             points,
