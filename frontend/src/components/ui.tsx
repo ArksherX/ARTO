@@ -66,6 +66,18 @@ export function Chip({ sev, children }: { sev: keyof typeof SEV; children: React
   );
 }
 
+export function SourceTag({ source }: { source: "live" | "sample" }) {
+  const live = source === "live";
+  return (
+    <span
+      className="rounded border px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
+      style={{ color: live ? "var(--ok)" : "var(--muted-2)", borderColor: live ? "var(--ok)" : "var(--border)" }}
+    >
+      {live ? "live" : "sample"}
+    </span>
+  );
+}
+
 export function SampleBadge() {
   return (
     <span className="rounded-md border border-dashed border-bd px-2 py-[3px] text-[11px] uppercase tracking-wider text-muted2">
