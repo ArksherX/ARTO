@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ARTO design tokens — mirror of reviews_out/arto_design/tokens.css.
+   Electric Indigo accent on dark "ink"; severity reserved for meaning. */
+:root {
+  color-scheme: dark;
+  --ink: #0b0e16;
+  --surface: #121725;
+  --surface-2: #1a2130;
+  --raised: #232b3c;
+  --border: #2a3344;
+  --border-soft: #1e2635;
+  --text: #e7eaf3;
+  --muted: #9aa3b8;
+  --muted-2: #6b7488;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 10px 28px rgba(0, 0, 0, 0.3);
+
+  --acc-200: #b5acff;
+  --acc-300: #897aff;
+  --acc-500: #6e5cf7;
+  --acc-600: #5a46e6;
+  --acc-700: #4a38c8;
+  --acc: var(--acc-500);
+  --acc-soft: rgba(110, 92, 247, 0.16);
+  --acc-line: rgba(110, 92, 247, 0.5);
+  --on-acc: #ffffff;
+
+  --crit: #f04852;
+  --high: #f6913b;
+  --med: #ecc14b;
+  --low: #58a6e6;
+  --ok: #3fb98a;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --ink: #f6f8fc;
+  --surface: #ffffff;
+  --surface-2: #f0f3f9;
+  --raised: #e7ecf5;
+  --border: #dee3ed;
+  --border-soft: #eaedf4;
+  --text: #161b29;
+  --muted: #55607a;
+  --muted-2: #8992a6;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 10px 24px rgba(16, 24, 40, 0.08);
+  --acc-soft: rgba(110, 92, 247, 0.1);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  margin: 0;
+  background: var(--ink);
+  color: var(--text);
+  font-family: var(--font-body, "IBM Plex Sans"), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}

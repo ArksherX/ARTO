@@ -1,0 +1,32 @@
+{
+  "name": "arto-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "ARTO suite console — production frontend (Tessera, Vestigia, VerityFlux).",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -b --noEmit",
+    "gen:api": "openapi-typescript ../docs/openapi/tessera.json -o src/lib/schema/tessera.d.ts && openapi-typescript ../docs/openapi/vestigia.json -o src/lib/schema/vestigia.d.ts && openapi-typescript ../docs/openapi/verityflux.json -o src/lib/schema/verityflux.d.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.59.0",
+    "openapi-fetch": "^0.13.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.27.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "openapi-typescript": "^7.4.2",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  }
+}

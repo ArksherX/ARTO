@@ -1,0 +1,7 @@
+node_modules
+dist
+dist-ssr
+*.local
+.vite
+# generated API types (run `pnpm gen:api`)
+src/lib/schema/*.d.ts
