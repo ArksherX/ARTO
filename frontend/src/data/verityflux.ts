@@ -40,7 +40,16 @@ export const detections: Detection[] = [
 ];
 
 // Drift trajectory for session s-4471: turn -> drift (0..1), turning point at t10.
-export const trajectory = {
+export interface TrajectoryModel {
+  session: string;
+  agent: string;
+  turningPoint: number;
+  elevated: number;
+  critical: number;
+  points: { turn: number; drift: number }[];
+}
+
+export const trajectory: TrajectoryModel = {
   session: "s-4471",
   agent: "a-3391",
   turningPoint: 10,
