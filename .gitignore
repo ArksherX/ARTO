@@ -108,3 +108,8 @@ vestigia/claude.md
 /verityflux-v2/attack_test_results.json
 /verityflux-v2/audit_exports/
 /vestigia/web_ui/data/
+
+# --- private / local (never publish) ---
+reviews_out/
+MCP_SECURITY_WHITEPAPER.txt
+NUS_CH_300-Capstone_Runtime_AI_Governance.docx
