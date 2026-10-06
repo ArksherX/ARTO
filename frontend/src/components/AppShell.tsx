@@ -2,13 +2,7 @@ import { useState, type ReactNode } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { getTheme, applyTheme, type Theme } from "../lib/theme";
 import { isAuthed, clearToken, requireLogin } from "../lib/auth";
-
-const TABS = [
-  { to: "/overview", label: "Overview" },
-  { to: "/tessera", label: "Tessera" },
-  { to: "/vestigia", label: "Vestigia" },
-  { to: "/verityflux", label: "VerityFlux" },
-];
+import { topNav as TABS } from "../lib/nav";
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(getTheme());
@@ -36,6 +30,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <NavLink
               key={t.to}
               to={t.to}
+              end={t.end}
               className={({ isActive }) =>
                 "shrink-0 rounded-lg px-3 py-1.5 text-[13.5px] font-medium transition-colors " +
                 (isActive ? "text-text bg-acc-soft ring-1 ring-inset ring-acc-line" : "text-muted hover:text-text hover:bg-surface2")
