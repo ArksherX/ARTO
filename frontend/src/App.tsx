@@ -6,6 +6,10 @@ import Overview from "./pages/Overview";
 import Tessera from "./pages/Tessera";
 import Vestigia from "./pages/Vestigia";
 import VestigiaStatistics from "./pages/VestigiaStatistics";
+import VestigiaAudit from "./pages/VestigiaAudit";
+import VestigiaPlaybooks from "./pages/VestigiaPlaybooks";
+import VerityFluxSOC from "./pages/VerityFluxSOC";
+import TesseraRegistry from "./pages/TesseraRegistry";
 import VerityFlux from "./pages/VerityFlux";
 import Approvals from "./pages/Approvals";
 import Settings from "./pages/Settings";
@@ -27,7 +31,7 @@ export default function App() {
         {/* Tessera */}
         <Route path="/tessera" element={<PillarLayout nav={tesseraNav} />}>
           <Route index element={<Tessera />} />
-          <Route path="agents" element={<Placeholder title="Agent Registry" endpoint="/agents/list · /agents/{id} · POST /agents/register" />} />
+          <Route path="agents" element={<TesseraRegistry />} />
           <Route path="tokens" element={<Placeholder title="Token Generator" endpoint="POST /tokens/request · /tokens/delegate" note="Action tool — needs real auth (FE-1)." />} />
           <Route path="gatekeeper" element={<Placeholder title="Gatekeeper" endpoint="POST /access/validate · /tokens/validate" note="Action tool — needs real auth (FE-1)." />} />
           <Route path="revocation" element={<Placeholder title="Revocation Manager" endpoint="POST /tokens/revoke · /agents/{id}/keys/revoke" note="Action tool — needs real auth (FE-1)." />} />
@@ -38,12 +42,12 @@ export default function App() {
         <Route path="/vestigia" element={<PillarLayout nav={vestigiaNav} />}>
           <Route index element={<Vestigia />} />
           <Route path="stats" element={<VestigiaStatistics />} />
-          <Route path="audit" element={<Placeholder title="Audit Trail" endpoint="/events · /events/{id}" />} />
+          <Route path="audit" element={<VestigiaAudit />} />
           <Route path="forensics" element={<Placeholder title="Forensics" endpoint="/events/{id} · POST /anomalies/score" />} />
           <Route path="siem" element={<Placeholder title="SIEM Alerts" endpoint="/threat-cards · POST /webhooks/siem" />} />
           <Route path="killswitch" element={<Placeholder title="Kill-Switch" endpoint="lockdown control" note="Highest-risk action — build last, behind a hard confirm." />} />
           <Route path="nl" element={<Placeholder title="NL Query" endpoint="POST /nl/query" note="Action tool." />} />
-          <Route path="playbooks" element={<Placeholder title="Playbooks" endpoint="/playbooks · POST /playbooks/execute" />} />
+          <Route path="playbooks" element={<VestigiaPlaybooks />} />
           <Route path="risk" element={<Placeholder title="Risk Forecast" endpoint="/risk/forecast" />} />
           <Route path="uploads" element={<Placeholder title="Uploads" endpoint="POST /events/batch" note="Action tool, low priority." />} />
           <Route path="tenants" element={<Placeholder title="Tenants" endpoint="POST /tenants · /tenants/{id}/apikeys · /users" note="Admin action tool." />} />
@@ -52,7 +56,7 @@ export default function App() {
         {/* VerityFlux */}
         <Route path="/verityflux" element={<PillarLayout nav={verityfluxNav} />}>
           <Route index element={<VerityFlux />} />
-          <Route path="soc" element={<Placeholder title="SOC Command Center" endpoint="/api/v1/soc/metrics · /threat-level · /soc/incidents · /soc/alerts" />} />
+          <Route path="soc" element={<VerityFluxSOC />} />
           <Route path="scans" element={<Placeholder title="Scanning & Assessment" endpoint="POST+GET /api/v1/scans · /scans/{id}/findings · /skills/assess" note="Action tool." />} />
           <Route path="agents" element={<Placeholder title="Agent Monitoring" endpoint="/api/v1/soc/agents · POST heartbeat/quarantine" />} />
           <Route path="incidents" element={<Placeholder title="Incident Management" endpoint="/api/v1/soc/incidents · acknowledge/assign/resolve" />} />
