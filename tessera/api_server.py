@@ -549,11 +549,26 @@ if _strict_prod_mode():
     if ADMIN_KEY == "tessera-demo-key-change-in-production":
         raise RuntimeError("TESSERA_ADMIN_KEY must be set to a non-demo value in strict production mode")
 
+def _valid_session_jwt(token: str) -> bool:
+    """True if token is a valid ARTO session JWT (HS256, shared secret) — lets a
+    signed-in user's token authorize Tessera's protected endpoints alongside the
+    admin key. Additive; the admin-key path is unchanged."""
+    secret = os.getenv("ARTO_SESSION_JWT_SECRET") or os.getenv("VERITYFLUX_JWT_SECRET", "")
+    if not secret or not token or token.count(".") != 2:
+        return False
+    try:
+        import jwt as _jwt
+        _jwt.decode(token, secret, algorithms=["HS256"], options={"verify_aud": False})
+        return True
+    except Exception:
+        return False
+
+
 def verify_admin(authorization: Optional[str] = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(401, "Missing authorization")
     provided = authorization.removeprefix("Bearer ")
-    if not hmac.compare_digest(provided, ADMIN_KEY or ""):
+    if not (hmac.compare_digest(provided, ADMIN_KEY or "") or _valid_session_jwt(provided)):
         raise HTTPException(403, "Invalid admin key")
     return True
 

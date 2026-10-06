@@ -1,0 +1,83 @@
+# ARTO console — additive deployment. Serves the SPA and proxies /api/<service>
+# to the three backends. Add alongside the existing services; nothing here
+# changes Tessera/Vestigia/VerityFlux or their ingresses.
+#
+# Adjust before applying:
+#   - image: your registry/tag
+#   - *_UPSTREAM: the in-cluster Service DNS of each backend (name.namespace.svc)
+#   - host + cert-manager issuer in the Ingress
+# =============================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: arto-console
+  labels: { app.kubernetes.io/name: arto-console, app.kubernetes.io/component: frontend }
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: arto-console }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: arto-console }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: console
+          image: ghcr.io/arksherx/arto-console:latest # TODO: your registry/tag
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 80 }
+          env:
+            # TODO: point at the real in-cluster Service DNS of each backend.
+            - { name: TESSERA_UPSTREAM, value: "http://tessera.tessera.svc.cluster.local:8001" }
+            - { name: VESTIGIA_UPSTREAM, value: "http://vestigia.vestigia.svc.cluster.local:8002" }
+            - { name: VERITYFLUX_UPSTREAM, value: "http://verityflux-api.verityflux.svc.cluster.local:8003" }
+          readinessProbe:
+            httpGet: { path: /index.html, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /index.html, port: http }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { cpu: "250m", memory: "128Mi" }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false # nginx writes its template render + cache
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: arto-console
+  labels: { app.kubernetes.io/name: arto-console }
+spec:
+  selector: { app.kubernetes.io/name: arto-console }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: arto-console
+  labels: { app.kubernetes.io/name: arto-console }
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: ["console.example.com"] # TODO: your host
+      secretName: arto-console-tls
+  rules:
+    - host: console.example.com # TODO: your host
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: arto-console
+                port: { name: http }

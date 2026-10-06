@@ -415,6 +415,25 @@ def _get_siem_forwarder() -> Optional[ResilientSIEMForwarder]:
     return _siem_forwarder
 
 
+def _valid_session_jwt(token: str) -> bool:
+    """True if token is a valid ARTO session JWT (HS256, shared secret).
+
+    Lets a signed-in user's token authenticate against Vestigia in addition to
+    the static VESTIGIA_API_KEY, so the suite shares one user identity. The
+    secret is the same one VerityFlux signs with (ARTO_SESSION_JWT_SECRET, or
+    VERITYFLUX_JWT_SECRET). Additive: the existing API-key path is unchanged.
+    """
+    secret = os.getenv("ARTO_SESSION_JWT_SECRET") or os.getenv("VERITYFLUX_JWT_SECRET", "")
+    if not secret or not token or token.count(".") != 2:
+        return False
+    try:
+        import jwt as _jwt
+        _jwt.decode(token, secret, algorithms=["HS256"], options={"verify_aud": False})
+        return True
+    except Exception:
+        return False
+
+
 def _require_api_key(request: Request, authorization: Optional[str] = Header(None)) -> Optional[TenantContext]:
     """Dependency that validates Bearer tokens for single or multi-tenant modes."""
     if MULTI_TENANT:
@@ -457,7 +476,9 @@ def _require_api_key(request: Request, authorization: Optional[str] = Header(Non
             detail="Missing Authorization header",
         )
     scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not hmac.compare_digest(token, API_KEY or ""):
+    if scheme.lower() != "bearer" or not (
+        hmac.compare_digest(token, API_KEY or "") or _valid_session_jwt(token)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing Bearer token",
