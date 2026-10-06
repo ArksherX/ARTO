@@ -55,6 +55,43 @@ Foundation only, builds green:
   pages are scaffolded placeholders.
 - Typed API clients wired and ready in `src/lib/api.ts` (not yet called).
 
+## Deploy (additive — runs alongside Streamlit)
+
+The app is a static SPA served by nginx, which also proxies `/api/<service>` to
+each backend. It is a new container + ingress route; it changes no backend code
+and no existing ingress, so it can run beside the Streamlit dashboards until it
+reaches parity, then they are retired.
+
+```bash
+# build (context = repo root, so docs/openapi is available to gen:api)
+docker build -f frontend/Dockerfile -t arto-console .
+
+# run locally (point at your backends)
+docker run -p 8080:80 \
+  -e TESSERA_UPSTREAM=http://host.docker.internal:8001 \
+  -e VESTIGIA_UPSTREAM=http://host.docker.internal:8002 \
+  -e VERITYFLUX_UPSTREAM=http://host.docker.internal:8003 \
+  arto-console   # open http://localhost:8080
+```
+
+Kubernetes: `frontend/deploy/k8s/console.yaml` (Deployment + Service + Ingress).
+Set the image, the three `*_UPSTREAM` Service DNS names, and the host/cert-issuer,
+then `kubectl apply -f`. In production set `VITE_REQUIRE_LOGIN=true` at build time
+once the backend auth below is in place.
+
+### Backend dependencies (to finish the picture)
+
+Two backend items unblock the last mile — tracked in
+`reviews_out/ARTO_Remediation_Backlog.md`:
+
+1. **Unified user auth.** `/auth/login` returns a placeholder token and the three
+   services use different schemes (VerityFlux X-API-Key/JWT, Vestigia Bearer,
+   Tessera none). Real user login needs a shared JWT all three accept, or a
+   gateway/BFF that terminates user auth. The frontend auth layer is ready for it.
+2. **Read endpoints for the still-sample sections.** VerityFlux detection stream
+   (a list of recent scored inputs — `soc/events` is empty), and Tessera delegation
+   detail / token-posture / live approvals. Vestigia is already fully live.
+
 ## Next increments
 
 2. Wire Overview to live data (posture KPIs, pillar summaries) via TanStack Query.
