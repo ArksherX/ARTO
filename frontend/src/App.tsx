@@ -14,11 +14,13 @@ import VerityFlux from "./pages/VerityFlux";
 import Approvals from "./pages/Approvals";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
+import Callback from "./pages/Callback";
 import { tesseraNav, vestigiaNav, verityfluxNav } from "./lib/nav";
 import { requireLogin, isAuthed } from "./lib/auth";
 
 export default function App() {
   const loc = useLocation();
+  if (loc.pathname === "/auth/callback") return <Callback />;
   if (loc.pathname === "/login") return <Login />;
   if (requireLogin && !isAuthed()) return <Navigate to="/login" replace />;
 

@@ -5,3 +5,6 @@ dist-ssr
 .vite
 # generated API types (run `pnpm gen:api`)
 src/lib/schema/*.d.ts
+.env
+.env.*
+!.env.example

@@ -2698,6 +2698,68 @@ async def login(request: LoginRequest):
     )
 
 
+class OidcExchangeRequest(BaseModel):
+    code: str
+    redirect_uri: str
+
+
+def _oidc_domain() -> str:
+    return os.getenv("OIDC_ISSUER", "").replace("https://", "").replace("http://", "").strip("/")
+
+
+@app.post("/api/v1/auth/oidc/exchange", response_model=LoginResponse, tags=["Authentication"])
+async def oidc_exchange(request: OidcExchangeRequest):
+    """Exchange an OIDC authorization code (e.g. Auth0) for an internal session
+    token. The code is exchanged server-side with the client secret, the
+    returned id_token is verified against the provider's JWKS, and a VerityFlux
+    JWT (the shared internal token the suite validates) is minted from its
+    claims. Requires OIDC_ISSUER, OIDC_CLIENT_ID, OIDC_CLIENT_SECRET and
+    VERITYFLUX_JWT_SECRET in the environment.
+    """
+    from urllib.parse import urlencode
+
+    domain = _oidc_domain()
+    client_id = os.getenv("OIDC_CLIENT_ID", "")
+    client_secret = os.getenv("OIDC_CLIENT_SECRET", "")
+    if not (domain and client_id and client_secret):
+        raise HTTPException(status_code=503, detail="OIDC is not configured")
+    if not _jwt_secret():
+        raise HTTPException(status_code=503, detail="VERITYFLUX_JWT_SECRET is not set")
+
+    body = urlencode({
+        "grant_type": "authorization_code",
+        "code": request.code,
+        "redirect_uri": request.redirect_uri,
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }).encode()
+    try:
+        req = urllib_request.Request(
+            f"https://{domain}/oauth/token", data=body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        with urllib_request.urlopen(req, timeout=10) as resp:
+            tok = json.loads(resp.read().decode())
+        id_token = tok.get("id_token")
+        if not id_token:
+            raise ValueError("no id_token in provider response")
+        jwk_client = jwt.PyJWKClient(f"https://{domain}/.well-known/jwks.json")
+        signing_key = jwk_client.get_signing_key_from_jwt(id_token)
+        claims = jwt.decode(
+            id_token, signing_key.key, algorithms=["RS256"],
+            audience=client_id, issuer=f"https://{domain}/",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001 - provider/network/verification failure
+        logger.warning("OIDC exchange failed: %s", e)
+        raise HTTPException(status_code=401, detail="OIDC exchange failed")
+
+    user_id = str(claims.get("email") or claims.get("sub"))
+    organization_id = str(claims.get("org_id") or "org-123")
+    return _issue_login_response(user_id=user_id, organization_id=organization_id, role="admin")
+
+
 @app.post("/api/v1/auth/refresh", response_model=LoginResponse, tags=["Authentication"])
 async def refresh_token(request: RefreshTokenRequest):
     """
