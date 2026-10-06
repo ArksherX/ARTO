@@ -5,6 +5,7 @@ import Placeholder from "./components/Placeholder";
 import Overview from "./pages/Overview";
 import Tessera from "./pages/Tessera";
 import Vestigia from "./pages/Vestigia";
+import VestigiaStatistics from "./pages/VestigiaStatistics";
 import VerityFlux from "./pages/VerityFlux";
 import Approvals from "./pages/Approvals";
 import Settings from "./pages/Settings";
@@ -36,7 +37,7 @@ export default function App() {
         {/* Vestigia */}
         <Route path="/vestigia" element={<PillarLayout nav={vestigiaNav} />}>
           <Route index element={<Vestigia />} />
-          <Route path="stats" element={<Placeholder title="Statistics" endpoint="/statistics · /governance/metrics" />} />
+          <Route path="stats" element={<VestigiaStatistics />} />
           <Route path="audit" element={<Placeholder title="Audit Trail" endpoint="/events · /events/{id}" />} />
           <Route path="forensics" element={<Placeholder title="Forensics" endpoint="/events/{id} · POST /anomalies/score" />} />
           <Route path="siem" element={<Placeholder title="SIEM Alerts" endpoint="/threat-cards · POST /webhooks/siem" />} />
