@@ -6,6 +6,7 @@ Supports:
 - OpenAI (GPT-4, GPT-3.5)
 - Anthropic (Claude)
 - Azure OpenAI
+- NVIDIA NIM (build.nvidia.com or self-hosted; OpenAI-compatible)
 - Hugging Face Inference API
 - Local models (Ollama, LM Studio)
 - Enhanced Mock (for realistic testing)
@@ -72,6 +73,21 @@ class LLMAdapter:
                 logger.warning("OpenAI not installed: pip install openai")
             except Exception as e:
                 logger.warning("Azure OpenAI init failed: %s", e)
+
+        elif self.provider == "nvidia":
+            # NVIDIA NIM (OpenAI-compatible): hosted at build.nvidia.com, or self-hosted.
+            try:
+                import openai
+                self.base_url = (
+                    self.base_url
+                    or os.getenv("NVIDIA_BASE_URL")
+                    or "https://integrate.api.nvidia.com/v1"
+                )
+                self.client = openai.OpenAI(api_key=self.api_key, base_url=self.base_url)
+            except ImportError:
+                logger.warning("OpenAI not installed: pip install openai")
+            except Exception as e:
+                logger.warning("NVIDIA NIM init failed: %s", e)
 
         elif self.provider == "ollama":
             # Local Ollama instance
@@ -264,6 +280,8 @@ class LLMAdapter:
             elif self.provider == "anthropic":
                 return self._query_anthropic(prompt, system_prompt, temperature, max_tokens)
             elif self.provider == "azure_openai":
+                return self._query_openai(prompt, system_prompt, temperature, max_tokens)
+            elif self.provider == "nvidia":
                 return self._query_openai(prompt, system_prompt, temperature, max_tokens)
             elif self.provider == "ollama":
                 return self._query_ollama(prompt, system_prompt, temperature, max_tokens)
