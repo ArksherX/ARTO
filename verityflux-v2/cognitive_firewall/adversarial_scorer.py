@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from integrations.llm_adapter import LLMAdapter
+from cognitive_firewall.nemoguard_detector import NeMoGuardJailbreakDetector
 
 
 @dataclass
@@ -120,6 +121,8 @@ class AdversarialLLMScorer:
         api_key = os.getenv("VERITYFLUX_SCORER_API_KEY")
 
         self.llm = LLMAdapter(provider=provider, model=model, api_key=api_key)
+        # Optional second-opinion jailbreak classifier; inert unless enabled.
+        self.nemoguard = NeMoGuardJailbreakDetector()
 
     def score_input(
         self, input_text: str, context: Optional[Dict[str, Any]] = None
@@ -137,7 +140,7 @@ class AdversarialLLMScorer:
         # Fast pre-screening with patterns
         pre_score = self._pattern_prescore(input_text)
         if pre_score is not None:
-            return pre_score
+            return self._apply_nemoguard(pre_score, input_text)
 
         # LLM-based scoring
         prompt = f"Classify this input:\n\n{input_text[:2000]}"
@@ -148,7 +151,31 @@ class AdversarialLLMScorer:
             max_tokens=200,
         )
 
-        return self._parse_response(response, input_text)
+        return self._apply_nemoguard(
+            self._parse_response(response, input_text), input_text
+        )
+
+    def _apply_nemoguard(self, result: ScorerResult, input_text: str) -> ScorerResult:
+        """Optionally consult the NeMoGuard jailbreak NIM as a second opinion.
+
+        Inert unless the detector is enabled (VERITYFLUX_NEMOGUARD_ENABLED). Only
+        runs when the base result is not already adversarial -- so it adds a network
+        call only for inputs that would otherwise pass, catching misses at no extra
+        cost on already-flagged inputs. Only ever escalates; never downgrades.
+        """
+        if result.is_adversarial or not getattr(self.nemoguard, "enabled", False):
+            return result
+        guard = self.nemoguard.detect(input_text)
+        if guard.get("jailbreak_detected"):
+            result.is_adversarial = True
+            if result.intent_class in ("benign", "probing"):
+                result.intent_class = "exploit"
+            result.hostility_score = max(result.hostility_score, 0.85)
+            result.confidence = max(
+                result.confidence, float(guard.get("confidence", 0.0) or 0.0)
+            )
+            result.reasoning = (result.reasoning or "") + " [NeMoGuard: jailbreak]"
+        return result
 
     def score_batch(
         self, inputs: List[str], context: Optional[Dict[str, Any]] = None
