@@ -55,13 +55,13 @@ st.markdown("""
     .main { padding: 1rem; }
 
     .metric-card {
-        background: #FFFFFF;
+        background: #121725;
         border-radius: 4px;
         padding: 1rem;
-        color: #172033;
+        color: #E7EAF3;
         text-align: center;
-        border: 1px solid #D8E0EA;
-        border-left: 3px solid #C0392B;
+        border: 1px solid #2A3344;
+        border-left: 3px solid #6E5CF7;
         box-shadow: none;
     }
 
@@ -70,20 +70,21 @@ st.markdown("""
         font-size: 2.2rem;
         font-weight: 500;
         margin: 0.35rem 0;
-        color: #172033;
+        color: #E7EAF3;
     }
 
     .metric-label {
         font-family: 'JetBrains Mono', monospace;
         font-size: 0.8rem;
-        color: #607086;
+        color: #9AA3B8;
         text-transform: uppercase;
     }
 
-    .threat-green { color: #0F6E56; }
-    .threat-yellow { color: #E67E22; }
-    .threat-orange { color: #E67E22; }
-    .threat-red { color: #C0392B; }
+    /* severity — RESERVED scale, never the brand accent */
+    .threat-green { color: #3FB98A; }
+    .threat-yellow { color: #ECC14B; }
+    .threat-orange { color: #F6913B; }
+    .threat-red { color: #F04852; }
 
     .badge {
         padding: 0.2rem 0.6rem;
@@ -92,18 +93,19 @@ st.markdown("""
         font-weight: 600;
     }
 
-    .badge-critical { background: #C0392B; color: white; }
-    .badge-high { background: #E67E22; color: white; }
-    .badge-medium { background: #F4C542; color: #172033; }
-    .badge-low { background: #A8C4DC; color: #172033; }
-    .badge-info { background: #607086; color: white; }
+    /* dark text stays on the light severity fills so contrast holds */
+    .badge-critical { background: #F04852; color: #FFFFFF; }
+    .badge-high { background: #F6913B; color: #0B0E16; }
+    .badge-medium { background: #ECC14B; color: #0B0E16; }
+    .badge-low { background: #58A6E6; color: #0B0E16; }
+    .badge-info { background: #6B7488; color: #FFFFFF; }
 
     .info-card {
-        background: #FFFFFF;
-        border-left: 4px solid #C0392B;
-        border-top: 1px solid #D8E0EA;
-        border-right: 1px solid #D8E0EA;
-        border-bottom: 1px solid #D8E0EA;
+        background: #121725;
+        border-left: 4px solid #6E5CF7;
+        border-top: 1px solid #2A3344;
+        border-right: 1px solid #2A3344;
+        border-bottom: 1px solid #2A3344;
         padding: 1rem;
         margin: 0.5rem 0;
         border-radius: 4px;
@@ -114,8 +116,8 @@ st.markdown("""
     footer {visibility: hidden;}
 
     ::-webkit-scrollbar { width: 8px; }
-    ::-webkit-scrollbar-track { background: #F5F7FA; }
-    ::-webkit-scrollbar-thumb { background: #A8B5C5; border-radius: 4px; }
+    ::-webkit-scrollbar-track { background: #0B0E16; }
+    ::-webkit-scrollbar-thumb { background: #2A3344; border-radius: 4px; }
 </style>
 """, unsafe_allow_html=True)
 

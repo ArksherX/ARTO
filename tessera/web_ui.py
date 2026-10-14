@@ -42,9 +42,22 @@ st.set_page_config(
 # ============================================================================
 st.markdown("""
 <style>
+    /* ARTO brand typography — Archivo (display) / IBM Plex Sans (body) / JetBrains Mono (data) */
+    @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+    html, body, [class*="css"], .stMarkdown, .stText {
+        font-family: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    }
+    h1, h2, h3, h4 {
+        font-family: 'Archivo', 'IBM Plex Sans', system-ui, sans-serif;
+        letter-spacing: -0.01em;
+    }
+    code, pre, .token-display, .tool-tag {
+        font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
     /* Main theme */
     .main {
-        background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+        background: linear-gradient(135deg, #0B0E16, #121725, #0B0E16);
     }
     
     /* Cards */
@@ -61,13 +74,13 @@ st.markdown("""
     .tessera-card-header {
         font-size: 1.2em;
         font-weight: bold;
-        color: #58a6ff;
+        color: #897AFF;
         margin-bottom: 10px;
     }
     
     /* Status badges */
     .status-active {
-        background: #238636;
+        background: #3FB98A;
         color: white;
         padding: 4px 12px;
         border-radius: 12px;
@@ -76,7 +89,7 @@ st.markdown("""
     }
     
     .status-suspended {
-        background: #f85149;
+        background: #F04852;
         color: white;
         padding: 4px 12px;
         border-radius: 12px;
@@ -85,7 +98,7 @@ st.markdown("""
     }
     
     .status-revoked {
-        background: #6e7681;
+        background: #6B7488;
         color: white;
         padding: 4px 12px;
         border-radius: 12px;
@@ -96,7 +109,7 @@ st.markdown("""
     /* Tool tags */
     .tool-tag {
         background: rgba(88, 166, 255, 0.2);
-        color: #58a6ff;
+        color: #897AFF;
         padding: 2px 8px;
         border-radius: 4px;
         font-family: 'Courier New', monospace;
@@ -109,12 +122,12 @@ st.markdown("""
     /* Token display */
     .token-display {
         background: rgba(0, 0, 0, 0.3);
-        border: 1px solid #30363d;
+        border: 1px solid #2A3344;
         border-radius: 6px;
         padding: 15px;
         font-family: 'Courier New', monospace;
         font-size: 0.85em;
-        color: #58a6ff;
+        color: #897AFF;
         word-break: break-all;
         margin: 10px 0;
     }
@@ -122,21 +135,21 @@ st.markdown("""
     /* Metrics */
     .metric-container {
         background: rgba(88, 166, 255, 0.1);
-        border-left: 4px solid #58a6ff;
+        border-left: 4px solid #897AFF;
         padding: 15px;
         border-radius: 4px;
         margin: 10px 0;
     }
     
     .metric-label {
-        color: #8b949e;
+        color: #9AA3B8;
         font-size: 0.85em;
         text-transform: uppercase;
         letter-spacing: 1px;
     }
     
     .metric-value {
-        color: #58a6ff;
+        color: #897AFF;
         font-size: 2em;
         font-weight: bold;
         font-family: 'Courier New', monospace;
@@ -144,7 +157,7 @@ st.markdown("""
     
     /* Decision badges */
     .decision-allow {
-        background: #238636;
+        background: #3FB98A;
         color: white;
         padding: 8px 16px;
         border-radius: 6px;
@@ -153,7 +166,7 @@ st.markdown("""
     }
     
     .decision-deny {
-        background: #f85149;
+        background: #F04852;
         color: white;
         padding: 8px 16px;
         border-radius: 6px;
@@ -164,31 +177,31 @@ st.markdown("""
     /* Audit log */
     .audit-entry {
         background: rgba(255, 255, 255, 0.03);
-        border-left: 3px solid #30363d;
+        border-left: 3px solid #2A3344;
         padding: 10px;
         margin: 5px 0;
         border-radius: 4px;
     }
     
     .audit-timestamp {
-        color: #8b949e;
+        color: #9AA3B8;
         font-size: 0.8em;
         font-family: 'Courier New', monospace;
     }
     
     /* Risk threshold indicator */
     .risk-low {
-        color: #3fb950;
+        color: #3FB98A;
         font-weight: bold;
     }
     
     .risk-medium {
-        color: #d29922;
+        color: #ECC14B;
         font-weight: bold;
     }
     
     .risk-high {
-        color: #f85149;
+        color: #F04852;
         font-weight: bold;
     }
 </style>
@@ -263,11 +276,11 @@ def format_token_display(token: str) -> str:
 # ============================================================================
 st.markdown("""
 <div style='text-align: center; padding: 20px; background: rgba(88, 166, 255, 0.1); border-radius: 10px; margin-bottom: 30px;'>
-    <h1 style='color: #58a6ff; font-size: 3em; margin: 0;'>🛡️ Tessera IAM</h1>
-    <p style='color: #8b949e; font-size: 1.2em; margin: 10px 0 0 0;'>
+    <h1 style='color: #897AFF; font-size: 3em; margin: 0;'>🛡️ Tessera IAM</h1>
+    <p style='color: #9AA3B8; font-size: 1.2em; margin: 10px 0 0 0;'>
         Zero-Trust Identity & Access Management for AI Agents
     </p>
-    <p style='color: #6e7681; font-size: 0.9em; margin: 5px 0 0 0;'>
+    <p style='color: #6B7488; font-size: 0.9em; margin: 5px 0 0 0;'>
         Cryptographic Passports • Role-Based Access Control • Just-In-Time Permissions
     </p>
 </div>
@@ -371,12 +384,12 @@ if mode == "📊 Dashboard":
                 labels=list(status_counts.keys()),
                 values=list(status_counts.values()),
                 hole=0.4,
-                marker=dict(colors=['#238636', '#f85149', '#6e7681'])
+                marker=dict(colors=['#3FB98A', '#F04852', '#6B7488'])
             )])
             fig.update_layout(
                 paper_bgcolor='rgba(0,0,0,0)',
                 plot_bgcolor='rgba(0,0,0,0)',
-                font=dict(color='#c9d1d9'),
+                font=dict(color='#E7EAF3'),
                 height=300
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -400,12 +413,12 @@ if mode == "📊 Dashboard":
                 fig = go.Figure(data=[go.Bar(
                     x=list(hourly_counts.keys()),
                     y=list(hourly_counts.values()),
-                    marker=dict(color='#58a6ff')
+                    marker=dict(color='#897AFF')
                 )])
                 fig.update_layout(
                     paper_bgcolor='rgba(0,0,0,0)',
                     plot_bgcolor='rgba(0,0,0,0)',
-                    font=dict(color='#c9d1d9'),
+                    font=dict(color='#E7EAF3'),
                     xaxis_title="Hour",
                     yaxis_title="Tokens Issued",
                     height=300
@@ -430,7 +443,7 @@ if mode == "📊 Dashboard":
                     <span>{status_emoji} <strong>{entry['type']}</strong> - {entry['agent_id']}</span>
                     <span class='audit-timestamp'>{entry['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}</span>
                 </div>
-                <div style='color: #8b949e; font-size: 0.9em; margin-top: 5px;'>{entry['details']}</div>
+                <div style='color: #9AA3B8; font-size: 0.9em; margin-top: 5px;'>{entry['details']}</div>
             </div>
             """, unsafe_allow_html=True)
     else:
@@ -705,8 +718,8 @@ elif mode == "🛡️ Gatekeeper":
             
             if result.decision == AccessDecision.ALLOW:
                 st.markdown("""
-                <div class='tessera-card' style='border-left: 4px solid #238636;'>
-                    <h2 style='color: #3fb950;'>✅ ACCESS GRANTED</h2>
+                <div class='tessera-card' style='border-left: 4px solid #3FB98A;'>
+                    <h2 style='color: #3FB98A;'>✅ ACCESS GRANTED</h2>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -720,8 +733,8 @@ elif mode == "🛡️ Gatekeeper":
                 """, unsafe_allow_html=True)
             else:
                 st.markdown("""
-                <div class='tessera-card' style='border-left: 4px solid #f85149;'>
-                    <h2 style='color: #f85149;'>🚫 ACCESS DENIED</h2>
+                <div class='tessera-card' style='border-left: 4px solid #F04852;'>
+                    <h2 style='color: #F04852;'>🚫 ACCESS DENIED</h2>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -853,13 +866,13 @@ elif mode == "📜 Audit Log":
                 <div style='display: flex; justify-content: space-between; align-items: center;'>
                     <div>
                         <span style='font-size: 1.2em;'>{status_emoji}</span>
-                        <strong style='color: #58a6ff;'>{entry['type']}</strong>
-                        <span style='color: #8b949e;'>—</span>
+                        <strong style='color: #897AFF;'>{entry['type']}</strong>
+                        <span style='color: #9AA3B8;'>—</span>
                         <code>{entry['agent_id']}</code>
                     </div>
                     <span class='audit-timestamp'>{entry['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}</span>
                 </div>
-                <div style='color: #8b949e; font-size: 0.9em; margin-top: 8px; padding-left: 30px;'>
+                <div style='color: #9AA3B8; font-size: 0.9em; margin-top: 8px; padding-left: 30px;'>
                     {entry['details']}
                 </div>
             </div>
@@ -884,7 +897,7 @@ elif mode == "📜 Audit Log":
 # ============================================================================
 st.markdown("---")
 st.markdown("""
-<div style='text-align: center; color: #6e7681; font-size: 0.9em;'>
+<div style='text-align: center; color: #6B7488; font-size: 0.9em;'>
     <p>🛡️ <strong>Tessera IAM</strong> | Zero-Trust Identity Management for AI Agents</p>
     <p>Version 1.0.0 | Built for DEF CON Singapore 2026</p>
 </div>

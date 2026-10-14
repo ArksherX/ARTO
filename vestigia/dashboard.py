@@ -833,7 +833,7 @@ def get_api_events(limit=50, action_type=None):
 # ============================================================================
 
 def render_sidebar():
-    st.sidebar.markdown('### ARTO<span style="color:#A8C4DC">NEXA</span> // VESTIGIA', unsafe_allow_html=True)
+    st.sidebar.markdown('### ARTO<span style="color:#897AFF">NEXA</span> // VESTIGIA', unsafe_allow_html=True)
     st.sidebar.markdown("---")
     
     page = st.sidebar.radio(

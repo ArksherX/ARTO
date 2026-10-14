@@ -1,2 +1,9 @@
 [server]
 port = 8501
+
+[theme]
+base = "dark"
+primaryColor = "#6E5CF7"
+backgroundColor = "#0B0E16"
+secondaryBackgroundColor = "#121725"
+textColor = "#E7EAF3"

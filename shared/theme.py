@@ -1,27 +1,34 @@
 # Shared design token layer across Tessera, VerityFlux, and Vestigia.
 
 COLORS = {
-    "bg_primary": "#F5F7FA",
-    "bg_secondary": "#FFFFFF",
-    "bg_tertiary": "#0A1825",
-    "sidebar": "#060D14",
-    "sidebar_panel": "#0F2236",
-    "rule": "#D8E0EA",
-    "dark_rule": "#162840",
-    "white": "#FFFFFF",
-    "text": "#172033",
-    "light_blue": "#A8C4DC",
-    "muted": "#607086",
-    "terminal_muted": "#3D5A73",
-    "teal": "#0F6E56",
-    "red": "#C0392B",
-    "amber": "#E67E22",
+    # foundation — ARTO dark "ink" (locked brand)
+    "bg_primary": "#0B0E16",      # app background
+    "bg_secondary": "#121725",    # panels / cards
+    "bg_tertiary": "#090C13",     # code blocks / deepest
+    "sidebar": "#090C13",
+    "sidebar_panel": "#121725",
+    "rule": "#2A3344",            # border
+    "dark_rule": "#1E2635",       # border-soft
+    "white": "#FFFFFF",           # on-accent text
+    "text": "#E7EAF3",
+    "light_blue": "#B5ACFF",      # acc-200 tint (sidebar text / code)
+    "muted": "#9AA3B8",
+    "terminal_muted": "#6B7488",
+    # severity — RESERVED for meaning, never the brand accent
+    "teal": "#3FB98A",            # healthy / ok
+    "red": "#F04852",             # critical
+    "amber": "#F6913B",           # warning / high
+    # brand accent — Electric Indigo (one accent across the whole suite)
+    "accent": "#6E5CF7",
+    "accent_hover": "#897AFF",
+    "accent_soft": "rgba(110, 92, 247, 0.16)",
 }
 
+# One brand accent across all three tools — the suite reads as a single product.
 TOOL_ACCENTS = {
-    "tessera": COLORS["teal"],
-    "verityflux": COLORS["red"],
-    "vestigia": COLORS["light_blue"],
+    "tessera": COLORS["accent"],
+    "verityflux": COLORS["accent"],
+    "vestigia": COLORS["accent"],
 }
 
 
@@ -31,12 +38,12 @@ def inject_css(tool: str = "suite"):
     accent = TOOL_ACCENTS.get(tool.lower(), COLORS["teal"])
     st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 .stApp, [data-testid="stAppViewContainer"], [data-testid="stMainBlockContainer"] {{
     background-color: {COLORS['bg_primary']} !important;
     color: {COLORS['text']} !important;
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif !important;
 }}
 
 .block-container {{
@@ -56,7 +63,7 @@ def inject_css(tool: str = "suite"):
 }}
 
 h1, h2, h3, h4 {{
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'Archivo', 'IBM Plex Sans', system-ui, sans-serif !important;
     font-weight: 600 !important;
     color: {COLORS['text']} !important;
     letter-spacing: 0 !important;
@@ -121,7 +128,7 @@ code, pre, [data-testid="stCodeBlock"] {{
     color: {COLORS['white']} !important;
     border: 1px solid {accent} !important;
     border-radius: 3px !important;
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'IBM Plex Sans', system-ui, sans-serif !important;
     font-size: 13px !important;
     font-weight: 500 !important;
     padding: 6px 14px !important;
@@ -133,7 +140,7 @@ code, pre, [data-testid="stCodeBlock"] {{
 }}
 
 [data-testid="stHeader"] {{
-    background: rgba(245, 247, 250, 0.92) !important;
+    background: rgba(11, 14, 22, 0.92) !important;
     border-bottom: 1px solid {COLORS['rule']} !important;
 }}
 
