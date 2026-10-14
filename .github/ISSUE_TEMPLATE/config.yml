@@ -1,0 +1,13 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/ArksherX/ARTO/security/advisories/new
+    about: >-
+      Do NOT open a public issue for a vulnerability in ARTO itself. Report it
+      privately here and we will acknowledge within 48 hours. See SECURITY.md.
+  - name: Question or discussion
+    url: https://discord.gg/6bX4DE3Hru
+    about: For usage questions and general discussion, start here rather than an issue.
+  - name: Commercial or alternative licensing
+    url: mailto:miracle@artonexa.com
+    about: ARTO is source-available under BSL 1.1. Contact us for commercial licensing.

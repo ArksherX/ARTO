@@ -1,0 +1,62 @@
+name: Propose a contribution
+description: A new detector, attack scenario, or framework mapping (the three highest-value additions)
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        These are the three contributions that move ARTO forward most — see
+        `CONTRIBUTING.md`. Proposing first (rather than opening a large PR cold)
+        usually gets it merged faster.
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What are you proposing?
+      options:
+        - A new VerityFlux detector (an attack class we miss today)
+        - A new attack scenario (reproducible demo of a control or a gap)
+        - A new framework / standards mapping (NIST AI RMF, ISO 42001, EU AI Act, OWASP, regional)
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What gap does this close?
+      description: The real behaviour or attack class that is currently missed or unmapped.
+    validations:
+      required: true
+
+  - type: textarea
+    id: approach
+    attributes:
+      label: Proposed approach
+      description: Roughly how you intend to implement it, and which files you expect to touch.
+    validations:
+      required: true
+
+  - type: textarea
+    id: precision
+    attributes:
+      label: "For a detector: precision plan"
+      description: >-
+        A good detector is **high precision** — it fires on the malicious class and
+        not on benign agent reasoning. Describe the positive case it must block and
+        the benign case it must still allow. (Both become tests.)
+      placeholder: |
+        Blocks: ...
+        Still allows (benign): ...
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and detectors for overlap.
+          required: true
+        - label: >-
+            I understand ARTO is source-available under BSL 1.1 (not an open-source
+            licence) and that contributions are licensed under the project's inbound terms.
+          required: true

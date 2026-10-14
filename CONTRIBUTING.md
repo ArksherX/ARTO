@@ -1,6 +1,6 @@
 # Contributing to ARTO
 
-Thanks for being here. ARTO is open security tooling for agentic AI, and it gets
+Thanks for being here. ARTO is source-available security tooling for agentic AI, and it gets
 better mostly through people who hit a real problem and decide to fix it. You do
 not need to be a maintainer or an expert to contribute — a new detector, a new
 attack scenario, or a clearer doc all move it forward. This guide is the door.
@@ -67,5 +67,26 @@ Please do **not** open public issues for security vulnerabilities in ARTO itself
 Email the maintainer instead. (Attack scenarios *against the demo* are welcome as
 normal contributions — those are the point.)
 
-## License
-By contributing, you agree your contributions are licensed under Apache-2.0.
+## License and sign-off
+
+ARTO is **source-available under the Business Source License 1.1** (see `LICENSE`),
+© ARTONexa Ltd. BSL is not an open-source licence: you can read, run, modify and
+self-host the code, but you may not offer it to third parties as a competing hosted
+service until the Change Date (2029-10-06), after which it converts to GPLv3.
+
+**Inbound = outbound.** By contributing, you agree your contributions are licensed
+under those same BSL 1.1 terms.
+
+**Sign off your commits (DCO).** We use the
+[Developer Certificate of Origin](https://developercertificate.org/). It is one
+flag — no forms, no account to create:
+
+```bash
+git commit -s -m "your message"
+```
+
+That appends a `Signed-off-by: Your Name <you@example.com>` line, certifying that
+you wrote the contribution (or have the right to submit it) and that you are
+submitting it under the licence indicated above — for this project, BSL 1.1.
+
+For commercial or alternative licensing, contact miracle@artonexa.com.

@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in Tessera, VerityFlux, or Vestigia behaves incorrectly
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        **Not a bug — a security vulnerability?** Stop and report it privately
+        instead: Security tab → Advisories → Report a vulnerability. See `SECURITY.md`.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - Tessera (identity / authorization)
+        - VerityFlux (runtime enforcement / detectors)
+        - Vestigia (audit / ledger)
+        - Shared / suite integration
+        - Console / dashboards
+        - Docs
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you observed, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: >-
+        Minimal steps. A short script or the exact commands is ideal — the faster
+        we can reproduce it, the faster it gets fixed.
+      placeholder: |
+        1. Start the suite with ...
+        2. Send ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output or logs
+      description: >-
+        Paste the error/traceback. **Redact any tokens, keys, or real agent data
+        before pasting.**
+      render: shell
+
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      placeholder: "e.g. main @ a1b2c3d"
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: "e.g. Ubuntu 24.04, Python 3.11, Docker compose"
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for a duplicate.
+          required: true
+        - label: This is not a security vulnerability (those go through private advisories).
+          required: true
+        - label: I removed any secrets, tokens, or real data from what I pasted.
+          required: true

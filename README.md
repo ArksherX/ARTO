@@ -301,7 +301,10 @@ venv/bin/pytest -q tests/smoke tests/integration tests/regression tests/ui tests
 ---
 
 ## License
-Apache-2.0. See `LICENSE`.
+Source-available under the **Business Source License 1.1**, © ARTONexa Ltd.
+You may read, run, modify and self-host it; you may not offer it to third parties
+as a competing hosted service until the Change Date (2029-10-06), after which it
+converts to GPLv3. See `LICENSE`. Commercial licensing: miracle@artonexa.com.
 
 ## Contributing
 See `CONTRIBUTING.md`.
