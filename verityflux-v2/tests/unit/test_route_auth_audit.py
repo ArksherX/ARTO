@@ -25,6 +25,13 @@ PUBLIC_ROUTES = {
     "/docs", "/docs/oauth2-redirect", "/openapi.json", "/redoc",
     # Pre-authentication (issue credentials; cannot themselves require one)
     "/api/v1/auth/login", "/api/v1/auth/refresh",
+    # OIDC code exchange: the login step itself, so it cannot carry a VF token.
+    # Reviewed 2026-10-15: the code is exchanged server-side with the client
+    # secret, the returned id_token is verified against the provider JWKS with
+    # the algorithm pinned to RS256 and both audience and issuer checked, and
+    # failures return a generic 401. Fails closed (503) when OIDC or
+    # VERITYFLUX_JWT_SECRET is unconfigured.
+    "/api/v1/auth/oidc/exchange",
     # Intentionally public data
     "/api/v2/attestation/public_key",  # a public key is meant to be public
     "/api/v2/mcp/status",              # status probe, no sensitive data
