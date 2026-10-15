@@ -36,6 +36,25 @@ import sys
 sys.path.insert(0, str(ROOT_DIR))
 from shared.theme import inject_css, status_box
 
+# --- Local development convenience -------------------------------------------
+# Load .env if present. override=False is deliberate: real environment variables
+# (Kubernetes secrets, docker env, CI) always take precedence, so this changes
+# nothing in production and only fills gaps when the module is run directly.
+try:  # pragma: no cover - best effort, never fatal
+    from pathlib import Path as _EnvPath
+    from dotenv import load_dotenv as _load_dotenv
+
+    for _env_candidate in (
+        _EnvPath(__file__).resolve().parents[2] / ".env",   # verityflux-v2/.env
+        _EnvPath(__file__).resolve().parents[3] / ".env",   # repo root .env
+    ):
+        if _env_candidate.is_file():
+            _load_dotenv(_env_candidate, override=False)
+except Exception:  # dotenv absent or .env unreadable - never fatal
+    pass
+# -----------------------------------------------------------------------------
+
+
 # Page configuration
 st.set_page_config(
     page_title="VerityFlux",

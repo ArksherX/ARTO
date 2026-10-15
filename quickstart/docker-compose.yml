@@ -9,6 +9,9 @@
 services:
 
   verityflux:
+    env_file:
+      - path: ../.env
+        required: false
     build:
       context: ../verityflux-v2
       dockerfile_inline: |
@@ -33,6 +36,9 @@ services:
       retries: 40
 
   demo:
+    env_file:
+      - path: ../.env
+        required: false
     image: python:3.11-slim
     working_dir: /app
     volumes:

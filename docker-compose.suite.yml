@@ -5,6 +5,9 @@ services:
       - "16379:6379"
 
   vestigia-api:
+    env_file:
+      - path: .env
+        required: false
     image: python:3.11-slim
     working_dir: /app
     volumes:
@@ -20,6 +23,9 @@ services:
       - redis
 
   tessera-api:
+    env_file:
+      - path: .env
+        required: false
     image: python:3.11-slim
     working_dir: /app
     volumes:
@@ -38,6 +44,9 @@ services:
       - redis
 
   verityflux-api:
+    env_file:
+      - path: .env
+        required: false
     image: python:3.11-slim
     working_dir: /app
     volumes:
@@ -55,6 +64,9 @@ services:
       - vestigia-api
 
   tessera-ui:
+    env_file:
+      - path: .env
+        required: false
     image: python:3.11-slim
     profiles: ["ui"]
     working_dir: /app
@@ -70,6 +82,9 @@ services:
       - tessera-api
 
   vestigia-ui:
+    env_file:
+      - path: .env
+        required: false
     image: python:3.11-slim
     profiles: ["ui"]
     working_dir: /app
@@ -85,6 +100,9 @@ services:
       - vestigia-api
 
   verityflux-ui:
+    env_file:
+      - path: .env
+        required: false
     image: python:3.11-slim
     profiles: ["ui"]
     working_dir: /app
