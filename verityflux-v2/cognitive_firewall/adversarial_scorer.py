@@ -35,6 +35,11 @@ class ScorerResult:
     requires_review: bool = False
 
 
+# Risk ordering for gating the optional NeMoGuard second opinion by how
+# dangerous the pending action is. Mirrors core.types.RiskLevel.
+_RISK_ORDER = {"info": 0, "low": 1, "medium": 2, "high": 3, "critical": 4}
+
+
 # Homoglyph fold: common non-Latin lookalikes -> Latin. NFKD does not fold
 # these (Cyrillic/Greek are distinct scripts), so an attacker can spell
 # "ignore" with Cyrillic а/е/о/с etc. and evade a raw substring match.
@@ -140,7 +145,7 @@ class AdversarialLLMScorer:
         # Fast pre-screening with patterns
         pre_score = self._pattern_prescore(input_text)
         if pre_score is not None:
-            return self._apply_nemoguard(pre_score, input_text)
+            return self._apply_nemoguard(pre_score, input_text, context)
 
         # LLM-based scoring
         prompt = f"Classify this input:\n\n{input_text[:2000]}"
@@ -152,18 +157,64 @@ class AdversarialLLMScorer:
         )
 
         return self._apply_nemoguard(
-            self._parse_response(response, input_text), input_text
+            self._parse_response(response, input_text), input_text, context
         )
 
-    def _apply_nemoguard(self, result: ScorerResult, input_text: str) -> ScorerResult:
+    def _nemoguard_applies(self, context: Optional[Dict[str, Any]]) -> bool:
+        """Should the NeMoGuard call be spent on this input?
+
+        VERITYFLUX_NEMOGUARD_MIN_RISK gates the call by how dangerous the pending
+        action is, read from context["risk_level"] (or "tool_risk"/"risk"):
+
+            all       consult on every non-adversarial input (default; the
+                      previous behaviour, so this change is backward compatible)
+            low|medium|high|critical
+                      consult only at or above that risk level
+
+        Measured cost that motivates this: the guard adds ~0.6-0.9s p50 to the
+        benign path, which is most traffic, and saturates around 17 req/s. Gating
+        to high/critical spends it where ~0.8s to stop a critical action is clearly
+        worth it.
+
+        FAIL-CLOSED: when a minimum is configured but the context carries no
+        recognisable risk level, the guard still runs. An unknown action is not
+        assumed safe.
+        """
+        min_risk = os.getenv("VERITYFLUX_NEMOGUARD_MIN_RISK", "all").strip().lower()
+        if min_risk in ("", "all"):
+            return True
+        threshold = _RISK_ORDER.get(min_risk)
+        if threshold is None:  # misconfigured value - do not silently skip
+            return True
+        raw = None
+        if isinstance(context, dict):
+            for key in ("risk_level", "tool_risk", "risk"):
+                if context.get(key) is not None:
+                    raw = context.get(key)
+                    break
+        level = _RISK_ORDER.get(str(getattr(raw, "value", raw)).strip().lower())
+        if level is None:
+            return True  # unknown risk -> fail closed, still consult
+        return level >= threshold
+
+    def _apply_nemoguard(
+        self,
+        result: ScorerResult,
+        input_text: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> ScorerResult:
         """Optionally consult the NeMoGuard jailbreak NIM as a second opinion.
 
         Inert unless the detector is enabled (VERITYFLUX_NEMOGUARD_ENABLED). Only
         runs when the base result is not already adversarial -- so it adds a network
         call only for inputs that would otherwise pass, catching misses at no extra
-        cost on already-flagged inputs. Only ever escalates; never downgrades.
+        cost on already-flagged inputs. Can be further restricted to high-risk
+        actions via VERITYFLUX_NEMOGUARD_MIN_RISK. Only ever escalates; never
+        downgrades.
         """
         if result.is_adversarial or not getattr(self.nemoguard, "enabled", False):
+            return result
+        if not self._nemoguard_applies(context):
             return result
         guard = self.nemoguard.detect(input_text)
         if guard.get("jailbreak_detected"):
