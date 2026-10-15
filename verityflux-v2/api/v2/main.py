@@ -2147,6 +2147,31 @@ async def lifespan(app: FastAPI):
     global auth_service, vulndb_service, scanner_service, soc_service, hitl_service, integration_manager
     
     logger.info("Starting VerityFlux API...")
+
+    # State what is actually protecting traffic, so it lands in the log/evidence
+    # trail. NeMoGuard being off is a deliberate cost/latency choice and is NOT
+    # warned about; the primary scorer silently running mock in production is the
+    # genuinely dangerous case, so that one warns under strict production mode.
+    try:
+        _ds = _detector_status()
+        _sc = _ds.get("adversarial_scorer", {})
+        logger.info(
+            "Protection status: enforcement=%s | scorer provider=%s model=%s live=%s | nemoguard=%s%s",
+            _ds.get("enforcement_mode"),
+            _sc.get("provider"), _sc.get("model"), _sc.get("live"),
+            _ds.get("nemoguard", {}).get("enabled"),
+            f" ({_ds['nemoguard']['model']})" if _ds.get("nemoguard", {}).get("model") else "",
+        )
+        if _strict_prod_mode() and not _sc.get("live"):
+            logger.warning(
+                "STRICT PROD: adversarial scorer is NOT live (provider=%s) - it is "
+                "falling back to the mock classifier, so inputs are flagged "
+                "requires_review rather than genuinely scored. Set "
+                "VERITYFLUX_SCORER_PROVIDER and the matching API key.",
+                _sc.get("provider"),
+            )
+    except Exception:  # status logging must never block startup
+        logger.debug("Protection status logging failed", exc_info=True)
     
     # Initialize services (lazy imports to avoid circular dependencies)
     try:
@@ -2472,6 +2497,8 @@ async def health_check():
             "soc": "healthy",
             "hitl": "healthy",
         },
+        # What is actually protecting traffic right now - not just "is it up".
+        "detectors": _detector_status(),
     }
 
 
@@ -4581,6 +4608,41 @@ def _get_adversarial_scorer():
         from cognitive_firewall.adversarial_scorer import AdversarialLLMScorer
         _adversarial_scorer = AdversarialLLMScorer()
     return _adversarial_scorer
+
+
+def _detector_status() -> dict:
+    """Report which protections are ACTUALLY active.
+
+    /health previously reported only that services were up, not what was
+    protecting traffic - so a deployment silently running the mock scorer looked
+    identical to one running real NIM-backed scoring. Which detectors were live
+    is also audit-relevant evidence after an incident. Read-only and defensive:
+    never raises, never changes behaviour.
+    """
+    status = {
+        "enforcement_mode": ENFORCEMENT_MODE,
+        "adversarial_scorer": {"provider": None, "model": None, "live": False},
+        "nemoguard": {"enabled": False, "model": None},
+    }
+    try:
+        scorer = _get_adversarial_scorer()
+        llm = getattr(scorer, "llm", None)
+        if llm is not None:
+            status["adversarial_scorer"] = {
+                "provider": getattr(llm, "provider", None),
+                "model": getattr(llm, "model", None),
+                # live = a real classifier, not the mock fallback
+                "live": not bool(getattr(llm, "is_mock", True)),
+            }
+        guard = getattr(scorer, "nemoguard", None)
+        if guard is not None:
+            status["nemoguard"] = {
+                "enabled": bool(getattr(guard, "enabled", False)),
+                "model": getattr(guard, "model", None) if getattr(guard, "enabled", False) else None,
+            }
+    except Exception as e:  # never let a status probe break /health
+        status["error"] = f"{type(e).__name__}: {str(e)[:120]}"
+    return status
 
 
 #: Stage 1 ledger: what escalation contracts WOULD have revoked. Read by
