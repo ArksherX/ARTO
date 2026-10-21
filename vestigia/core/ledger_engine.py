@@ -159,9 +159,18 @@ class ExternalAnchor:
         anchor_file.write_text(json.dumps(anchor_data, indent=2))
         
         try:
-            subprocess.run(['git', 'add', str(anchor_file)], 
-                         cwd=self.repo_path, capture_output=True, check=False)
-            
+            # cwd is already the anchor repo, so stage by BASENAME. Passing the
+            # repo-prefixed path made git resolve <repo>/<repo>/<file>, so every
+            # 'git add' failed with rc=128 and nothing was ever staged.
+            add_result = subprocess.run(
+                ['git', 'add', anchor_file.name],
+                cwd=self.repo_path, capture_output=True, text=True, check=False
+            )
+            if add_result.returncode != 0:
+                detail = (add_result.stderr or add_result.stdout or '').strip()
+                print(f"\u26a0\ufe0f  Git add failed: {detail}")
+                return f"failed_{anchor_data['anchor_id']}"
+
             commit_msg = f"Vestigia Anchor: {entry_count} entries | {ledger_hash[:16]}..."
             result = subprocess.run(
                 ['git', 'commit', '-m', commit_msg],
@@ -186,7 +195,10 @@ class ExternalAnchor:
                 else:
                     return f"local_{anchor_data['anchor_id']}"
             else:
-                print(f"⚠️  Git commit failed: {result.stderr}")
+                # git reports 'nothing to commit' on stdout, not stderr, so a
+                # stderr-only message was printed empty and hid the real cause.
+                detail = (result.stderr or result.stdout or '').strip().splitlines()
+                print(f"⚠️  Git commit failed: {detail[0] if detail else 'no output'}")
                 return f"failed_{anchor_data['anchor_id']}"
                 
         except Exception as e:
