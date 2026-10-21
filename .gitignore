@@ -113,3 +113,6 @@ vestigia/claude.md
 reviews_out/
 MCP_SECURITY_WHITEPAPER.txt
 NUS_CH_300-Capstone_Runtime_AI_Governance.docx
+
+# local runtime logs (demo hygiene)
+.local-logs/
