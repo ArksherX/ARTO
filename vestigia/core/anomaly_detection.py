@@ -161,12 +161,23 @@ class AnomalyDetector:
         actor["last_action"] = tool
 
         features, meta = extract_features(event)
+        # Fill in fields an actor persisted under an older shape will not have.
+        # The setdefault above only applies to a brand new actor, so a baseline
+        # file written before these keys existed came back without them and
+        # every ingest for that actor raised KeyError: 'mean_features' -- a 500
+        # on the event path, which is the one path that must not fail.
+        mean_features = actor.setdefault("mean_features", {})
+        scale_features = actor.setdefault("scale_features", {})
+        actor.setdefault("tools", {})
+        actor.setdefault("transitions", {})
+        actor.setdefault("avg_payload_size", 0.0)
+        actor.setdefault("count", 0)
         # Update mean/scale for feature-based models
         for key, value in features.items():
-            prev = actor["mean_features"].get(key, value)
-            actor["mean_features"][key] = self._ema(prev, value)
-            prev_scale = actor["scale_features"].get(key, 1.0)
-            actor["scale_features"][key] = self._ema(prev_scale, abs(value - actor["mean_features"][key]) + 1.0)
+            prev = mean_features.get(key, value)
+            mean_features[key] = self._ema(prev, value)
+            prev_scale = scale_features.get(key, 1.0)
+            scale_features[key] = self._ema(prev_scale, abs(value - mean_features[key]) + 1.0)
 
         # Update novelty radius heuristic
         actor["radius"] = max(1.0, actor.get("radius", 1.0) * 0.98 + 0.02 * sum(features.values()) / max(1.0, len(features)))
