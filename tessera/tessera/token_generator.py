@@ -21,8 +21,14 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, ec
 from cryptography.hazmat.backends import default_backend
 
-# Load environment (allow .env to override any stale shell exports)
-load_dotenv(override=True)
+# override=False on purpose: a real environment variable must beat a .env
+# file. With override=True this module silently replaced every value the
+# process was started with, because it runs at import time and api_server
+# imports it. In a container that means Secret Manager values injected by the
+# platform are overwritten by whatever .env happens to be on disk -- a DSN,
+# a signing key, an ingest URL. It was caught because events were being
+# posted to the .env default instead of the configured endpoint.
+load_dotenv(override=False)
 
 logger = logging.getLogger(__name__)
 

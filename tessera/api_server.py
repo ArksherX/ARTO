@@ -58,6 +58,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 print("🔐 Starting Tessera IAM API Server...")
 
+import logging
 import uuid
 
 from fastapi import FastAPI, HTTPException, Header, Request
@@ -299,6 +300,10 @@ def _record_denial(agent_id: str) -> None:
     _denial_state[agent_id] = entry
 
 
+logger = logging.getLogger("tessera.api")
+_INGEST_TIMEOUT = float(os.getenv("MLRT_VESTIGIA_TIMEOUT", "5"))
+
+
 def _send_to_vestigia(event: dict) -> None:
     if not _integration_enabled():
         return
@@ -329,10 +334,20 @@ def _send_to_vestigia(event: dict) -> None:
             headers=headers,
             method="POST",
         )
-        with urllib_request.urlopen(req, timeout=2) as _:
+        with urllib_request.urlopen(req, timeout=_INGEST_TIMEOUT) as _:
             pass
-    except Exception:
-        # Best-effort only; never fail core flows.
+    except Exception as exc:
+        # Delivery stays best-effort: evidence forwarding must never fail a
+        # core flow. But it used to swallow the reason entirely, so an
+        # integration that silently delivered nothing looked identical to one
+        # that worked. Log it, with the URL, so a deployment that is not
+        # reaching Vestigia says so on the first event instead of being found
+        # by counting rows.
+        logger.warning(
+            "Vestigia ingest failed (%s -> %s): %s: %s",
+            event.get("event_type", "unknown"), ingest_url,
+            type(exc).__name__, exc,
+        )
         return
 
 
