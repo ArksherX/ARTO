@@ -346,14 +346,48 @@ def _require_correlation_fields(contract_event: Dict[str, Any]) -> Optional[str]
 
 
 def _backfill_contract_correlation(contract_event: Dict[str, Any], fallback_actor: str) -> Dict[str, Any]:
+    """
+    Fill in correlation fields an emitter did not supply.
+
+    The old behaviour invented `session_id` as f"{agent_id}:{event_type}".
+    That is not a missing value, it is a wrong one: every separate episode by
+    the same agent collapsed into a single "session", so a correlated timeline
+    could stitch together unrelated incidents and look perfectly coherent.
+    Correlation enforcement is off by default, so everything arriving without
+    a session went through this path.
+
+    `trace_id` was then defaulted to that same value, conflating two different
+    things. A trace is one operation across services; a session is the whole
+    multi-turn episode and spans many traces. A multi-turn attack is one
+    session and N traces.
+
+    A synthesised id is now unique per event and marked as such, so it can
+    never merge unrelated events, and `correlation_synthetic` makes the gap
+    countable instead of invisible. The real fix is upstream: Tessera and
+    VerityFlux need to propagate W3C trace context, which Vestigia already
+    accepts.
+    """
     actor = contract_event.get("actor") or {}
     req = contract_event.get("request") or {}
     agent_id = actor.get("agent_id") or fallback_actor or "unknown"
-    event_type = contract_event.get("event_type") or "event"
-    session_id = req.get("session_id") or f"{agent_id}:{event_type}"
-    trace_id = req.get("trace_id") or session_id
+
+    synthetic = []
+    session_id = req.get("session_id")
+    if not session_id:
+        session_id = f"unlinked:{agent_id}:{uuid.uuid4()}"
+        synthetic.append("session_id")
+
+    trace_id = req.get("trace_id")
+    if not trace_id:
+        trace_id = f"unlinked:{uuid.uuid4()}"
+        synthetic.append("trace_id")
+
     req["session_id"] = session_id
     req["trace_id"] = trace_id
+    if synthetic:
+        # Recorded on the event so a report can say how much of a timeline is
+        # genuinely linked rather than assumed.
+        req["correlation_synthetic"] = synthetic
     actor["agent_id"] = agent_id
     contract_event["actor"] = actor
     contract_event["request"] = req
