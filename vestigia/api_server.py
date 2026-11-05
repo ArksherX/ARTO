@@ -724,8 +724,12 @@ async def request_logging_middleware(request: Request, call_next):
     # Propagate trace-context headers from the inbound request
     traceparent = request.headers.get("traceparent")
     tracestate = request.headers.get("tracestate")
-    if traceparent:
-        response.headers["traceparent"] = traceparent
+    # traceparent is set by trace_context_middleware, which reflects the span
+    # this service created rather than the caller's. Echoing the inbound value
+    # here ran afterwards and overwrote it, so Vestigia returned the caller's
+    # span while Tessera and VerityFlux returned their own -- the same header
+    # meaning two different things across the suite. tracestate is vendor
+    # state and is correctly passed through untouched.
     if tracestate:
         response.headers["tracestate"] = tracestate
 

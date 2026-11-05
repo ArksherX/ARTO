@@ -67,7 +67,18 @@ def _http_post(
 
     Returns the HTTP status code (or raises on transport error).
     """
-    hdrs = headers or {}
+    hdrs = dict(headers or {})
+    # Carry the trace to the SIEM so an alert there can be tied back to the
+    # event that produced it. Forwarding often runs on a background worker,
+    # where no trace is in scope -- in that case nothing is added rather than
+    # a fresh trace being minted, which would claim a link that does not exist.
+    try:
+        import trace_context as _tc
+        if _tc.enabled():
+            for k, v in _tc.headers().items():
+                hdrs.setdefault(k, v)
+    except Exception:
+        pass
 
     if _HTTPX_AVAILABLE:
         with httpx.Client(timeout=timeout) as client:
