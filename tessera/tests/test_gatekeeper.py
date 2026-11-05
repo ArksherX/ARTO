@@ -16,13 +16,16 @@ def _public_key():
     ).decode("utf-8")
 
 
-def test_gatekeeper_allows_valid_token():
+def test_gatekeeper_allows_valid_token(monkeypatch):
     os.environ["TESSERA_SECRET_KEY"] = "z" * 64
     # DPoP proof-of-possession is required by default (TESSERA_REQUIRE_DPOP);
+    # set through monkeypatch so it is restored afterwards -- os.environ here
+    # leaked into every test that ran later, which is what made the DPoP and
+    # replay tests pass or fail depending on ordering.
     # this test is about basic ALLOW/DENY decision logic, not DPoP mechanics
     # (which test_dpop_validation.py already covers directly), so disable it
     # here the same way TESSERA_INCLUDE_NONCE is toggled per-test below.
-    os.environ["TESSERA_REQUIRE_DPOP"] = "false"
+    monkeypatch.setenv("TESSERA_REQUIRE_DPOP", "false")
     registry = TesseraRegistry()
     # generate_token() correctly refuses to issue a token for an unregistered
     # agent -- this test never registered "mock_test" itself.
@@ -41,10 +44,10 @@ def test_gatekeeper_allows_valid_token():
     assert result.decision == AccessDecision.ALLOW
 
 
-def test_gatekeeper_denies_replay_nonce():
+def test_gatekeeper_denies_replay_nonce(monkeypatch):
     os.environ["TESSERA_SECRET_KEY"] = "z" * 64
-    os.environ["TESSERA_INCLUDE_NONCE"] = "true"
-    os.environ["TESSERA_REQUIRE_DPOP"] = "false"
+    monkeypatch.setenv("TESSERA_INCLUDE_NONCE", "true")
+    monkeypatch.setenv("TESSERA_REQUIRE_DPOP", "false")
     registry = TesseraRegistry()
     registry.register_agent("mock_test", owner="test_owner", allowed_tools=["read_csv"])
     token_gen = TokenGenerator(registry)
