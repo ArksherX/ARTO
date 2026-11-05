@@ -635,12 +635,10 @@ def _json_default(obj):
 
 
 def _load_agent_store() -> None:
-    path = _agent_store_path()
-    if not path.exists():
-        return
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+        payload = _doc_store().read(None, "soc_agents.json")
+        if not payload:
+            return
         agents = payload.get("agents", {})
         if not isinstance(agents, dict):
             return
@@ -662,14 +660,8 @@ def _load_agent_store() -> None:
 
 
 def _save_agent_store() -> None:
-    path = _agent_store_path()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if BASE_DIR not in path.resolve().parents:
-            raise ValueError("Agent store path must be within repo")
-        payload = {"agents": AGENT_STORE}
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, default=_json_default)
+        _doc_store().write(None, "soc_agents.json", {"agents": AGENT_STORE})
     except Exception as exc:
         logger.warning("Failed to save agent store: %s", exc)
 
@@ -722,9 +714,18 @@ def _doc_store():
     global _DOC_STORE
     if _DOC_STORE is None:
         from core.doc_store import build_doc_store
+        def _checked_tenant_path(org_id: str, filename: str) -> FSPath:
+            # The per-store save functions each re-checked this. Doing it here
+            # keeps the guard for every store and both backends: a tenant id
+            # must never address a file outside the data directory.
+            path = _tenant_store_path(org_id, filename)
+            if not _path_within_repo(path):
+                raise ValueError(f"Tenant store path must be within repo: {filename}")
+            return path
+
         _DOC_STORE = build_doc_store(
             global_path_fn=lambda name: _GLOBAL_DOC_PATHS[name](),
-            tenant_path_fn=_tenant_store_path,
+            tenant_path_fn=_checked_tenant_path,
             iter_tenant_paths_fn=_iter_tenant_store_paths,
             json_default=_json_default,
         )
@@ -764,31 +765,28 @@ def _load_scan_store() -> None:
     SCAN_STORE.clear()
     loaded = 0
     if _tenant_sharded_store_enabled("VERITYFLUX_SCAN_STORE_PATH"):
-        for path in _iter_tenant_store_paths("scans.json"):
+        for org_id, payload in _doc_store().iter_all("scans.json"):
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    payload = json.load(f)
-                scans = payload.get("scans", {})
+                scans = (payload or {}).get("scans", {})
                 if isinstance(scans, dict):
                     _merge_scan_rows(scans)
                     loaded += len(scans)
             except Exception as exc:
-                logger.warning("Failed to load tenant scan store %s: %s", path, exc)
+                logger.warning("Failed to load tenant scan store %s: %s", org_id, exc)
     if loaded:
         logger.info("Loaded %d scans from tenant-scoped stores", len(SCAN_STORE))
         return
 
-    path = _scan_store_path()
-    if not path.exists():
-        return
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+        payload = _doc_store().read(None, "scan_results.json")
+        if not payload:
+            return
         scans = payload.get("scans", {})
         if not isinstance(scans, dict):
             return
         _merge_scan_rows(scans)
-        logger.info("Loaded %d scans from disk", len(SCAN_STORE))
+        logger.info("Loaded %d scans from the %s store",
+                    len(SCAN_STORE), doc_store_backend())
     except Exception as exc:
         logger.warning("Failed to load scan store: %s", exc)
 
@@ -817,21 +815,13 @@ def _save_scan_store() -> None:
             grouped.setdefault(_organization_id_from_record(row), {})[scan_id] = row
         try:
             for org_id, rows in grouped.items():
-                path = _tenant_store_path(org_id, "scans.json")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                if not _path_within_repo(path):
-                    raise ValueError("Tenant scan store path must be within repo")
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump({"scans": rows}, f, indent=2, default=_json_default)
+                _doc_store().write(org_id, "scans.json", {"scans": rows})
             return
         except Exception as exc:
             logger.warning("Failed to save tenant-scoped scan store: %s", exc)
 
-    path = _scan_store_path()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"scans": serialisable}, f, indent=2, default=_json_default)
+        _doc_store().write(None, "scan_results.json", {"scans": serialisable})
     except Exception as exc:
         logger.warning("Failed to save scan store: %s", exc)
 
@@ -840,11 +830,9 @@ def _load_skill_assessment_store() -> None:
     SKILL_ASSESSMENT_STORE.clear()
     loaded = 0
     if _tenant_sharded_store_enabled("VERITYFLUX_SKILL_ASSESSMENT_STORE_PATH"):
-        for path in _iter_tenant_store_paths("skill_assessments.json"):
+        for org_id, payload in _doc_store().iter_all("skill_assessments.json"):
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    payload = json.load(f)
-                assessments = payload.get("assessments", {})
+                assessments = (payload or {}).get("assessments", {})
                 if not isinstance(assessments, dict):
                     continue
                 for assessment_id, row in assessments.items():
@@ -852,24 +840,23 @@ def _load_skill_assessment_store() -> None:
                         SKILL_ASSESSMENT_STORE[str(assessment_id)] = dict(row)
                         loaded += 1
             except Exception as exc:
-                logger.warning("Failed to load tenant skill assessment store %s: %s", path, exc)
+                logger.warning("Failed to load tenant skill assessment store %s: %s", org_id, exc)
     if loaded:
         logger.info("Loaded %d skill assessments from tenant-scoped stores", len(SKILL_ASSESSMENT_STORE))
         return
 
-    path = _skill_assessment_store_path()
-    if not path.exists():
-        return
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+        payload = _doc_store().read(None, "skill_assessments.json")
+        if not payload:
+            return
         assessments = payload.get("assessments", {})
         if not isinstance(assessments, dict):
             return
         for assessment_id, row in assessments.items():
             if isinstance(row, dict):
                 SKILL_ASSESSMENT_STORE[str(assessment_id)] = dict(row)
-        logger.info("Loaded %d skill assessments from disk", len(SKILL_ASSESSMENT_STORE))
+        logger.info("Loaded %d skill assessments from the %s store",
+                    len(SKILL_ASSESSMENT_STORE), doc_store_backend())
     except Exception as exc:
         logger.warning("Failed to load skill assessment store: %s", exc)
 
@@ -881,21 +868,14 @@ def _save_skill_assessment_store() -> None:
             grouped.setdefault(_organization_id_from_record(row), {})[assessment_id] = row
         try:
             for org_id, rows in grouped.items():
-                path = _tenant_store_path(org_id, "skill_assessments.json")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                if not _path_within_repo(path):
-                    raise ValueError("Tenant skill assessment store path must be within repo")
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump({"assessments": rows}, f, indent=2, default=_json_default)
+                _doc_store().write(org_id, "skill_assessments.json", {"assessments": rows})
             return
         except Exception as exc:
             logger.warning("Failed to save tenant-scoped skill assessment store: %s", exc)
 
-    path = _skill_assessment_store_path()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"assessments": SKILL_ASSESSMENT_STORE}, f, indent=2, default=_json_default)
+        _doc_store().write(None, "skill_assessments.json",
+                           {"assessments": SKILL_ASSESSMENT_STORE})
     except Exception as exc:
         logger.warning("Failed to save skill assessment store: %s", exc)
 
