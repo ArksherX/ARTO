@@ -47,7 +47,11 @@ from core.playbook_engine import PlaybookEngine
 from core.risk_forecasting import RiskHistoryStore, RiskForecaster
 from core.tenant_manager import TenantStore, TenantContext, ROLE_PERMISSIONS, PLAN_LIMITS
 from core.ops_health import collect_health
-from core.event_correlator import summarize_governance_metrics, summarize_interoperability_report
+from core.event_correlator import (
+    EventCorrelator,
+    summarize_governance_metrics,
+    summarize_interoperability_report,
+)
 from core.threat_registry import load_threat_cards, summarize_threat_card_coverage
 
 try:
@@ -914,6 +918,87 @@ async def create_event(body: EventCreateRequest, request: Request):
 
 
 # 2. GET /events -- query events --------------------------------------------
+
+@app.get(
+    "/correlate/session/{session_id}",
+    summary="Unified timeline for one session",
+    dependencies=[Depends(_require_api_key), Depends(_require_permission("events:read")), Depends(_rate_limit)],
+)
+async def correlate_session(
+    request: Request,
+    session_id: str,
+):
+    """
+    Every event recorded for one session, across all three tools, in order.
+
+    This is the question an incident actually asks -- "show me everything that
+    happened in this episode" -- and the correlator that answers it has existed
+    in core/event_correlator.py all along without being reachable. Nothing
+    imported it, so the unified timeline was written and never served.
+
+    It only became truthful recently. Emitters used to synthesise a session id
+    as f"{agent_id}:{event_type}", so correlating pulled in unrelated episodes
+    by the same agent and produced a timeline that looked coherent and was not.
+    Sessions now come from W3C baggage propagated between the services, and an
+    event that genuinely has none is marked "unlinked:" so it cannot group.
+
+    `synthetic_sessions` reports how many events in the timeline carried a
+    session nobody established, so a reader can tell a real thread from a
+    partial one rather than being asked to trust it.
+    """
+    correlator = EventCorrelator(ledger=_get_ledger())
+    timeline = correlator.correlate_by_session(session_id)
+
+    synthetic = 0
+    for ev in timeline.events:
+        evidence = ev.get("evidence") or {}
+        req = ((evidence.get("contract_event") or {}).get("request") or {})
+        if req.get("correlation_synthetic"):
+            synthetic += 1
+
+    traces = sorted({
+        ((((ev.get("evidence") or {}).get("contract_event") or {}).get("request") or {}).get("trace_id"))
+        for ev in timeline.events
+    } - {None})
+
+    return {
+        "session_id": session_id,
+        "total_events": timeline.total_events,
+        "components_involved": timeline.components_involved,
+        "time_range": {"start": timeline.time_range_start, "end": timeline.time_range_end},
+        # A session spans many traces: one per operation. Reporting the count
+        # keeps the two ideas separate for anyone reading the timeline.
+        "trace_count": len(traces),
+        "traces": traces,
+        "synthetic_sessions": synthetic,
+        "anomalies": timeline.anomalies,
+        "governance_metrics": timeline.governance_metrics,
+        "events": timeline.events,
+    }
+
+
+@app.get(
+    "/correlate/agent/{agent_id}",
+    summary="Unified timeline for one agent",
+    dependencies=[Depends(_require_api_key), Depends(_require_permission("events:read")), Depends(_rate_limit)],
+)
+async def correlate_agent(
+    request: Request,
+    agent_id: str,
+):
+    """Every event for one agent, across all three tools, in order."""
+    correlator = EventCorrelator(ledger=_get_ledger())
+    timeline = correlator.correlate_by_agent(agent_id)
+    return {
+        "agent_id": agent_id,
+        "total_events": timeline.total_events,
+        "components_involved": timeline.components_involved,
+        "time_range": {"start": timeline.time_range_start, "end": timeline.time_range_end},
+        "anomalies": timeline.anomalies,
+        "governance_metrics": timeline.governance_metrics,
+        "events": timeline.events,
+    }
+
 
 @app.get(
     "/events",

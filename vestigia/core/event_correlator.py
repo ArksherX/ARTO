@@ -202,20 +202,35 @@ class EventCorrelator:
 
         all_events = self.ledger.query_events(limit=1000)
         matched = []
+        seen = set()
         for event in all_events:
             ev_dict = event.to_dict()
+            # An event can satisfy more than one of these checks -- a session
+            # carried in both metadata and the contract event, for instance.
+            # Appending per check duplicated it in the timeline and inflated
+            # total_events, so match once per event.
+            hit = False
             evidence = ev_dict.get("evidence", {})
             if isinstance(evidence, dict):
                 metadata = evidence.get("metadata", {})
                 if metadata.get(field_name) == value:
-                    matched.append(ev_dict)
+                    hit = True
                 contract_event = evidence.get("contract_event") or {}
                 request = contract_event.get("request") or {}
                 actor = contract_event.get("actor") or {}
                 if request.get(field_name) == value or actor.get(field_name) == value:
+                    hit = True
+            # Exact match only. This was endswith(), so correlating session
+            # "s1" also pulled in an actor called "agents1" -- a timeline with
+            # someone else's events in it, which is worse than an empty one.
+            if ev_dict.get("actor_id") == value:
+                hit = True
+
+            if hit:
+                key = ev_dict.get("event_id") or id(event)
+                if key not in seen:
+                    seen.add(key)
                     matched.append(ev_dict)
-            if ev_dict.get("actor_id", "").endswith(value):
-                matched.append(ev_dict)
 
         return matched
 
