@@ -610,11 +610,22 @@ def _require_agent_tenant(agent, tenant_id: Optional[str]) -> None:
 def health():
     """Health check"""
     agents = registry.list_agents()
+    # Report the storage backend actually in use. A JSON file on a container
+    # filesystem loses every registered agent on restart, so "healthy" must
+    # not hide which one is live.
+    backend = getattr(registry, "storage_backend", "unknown")
+    dsn_set = bool(os.getenv("TESSERA_DB_DSN", "").strip())
     return {
         "status": "healthy",
         "service": "tessera-iam",
         "vestigia": VESTIGIA_AVAILABLE,
-        "agents": len(agents)
+        "agents": len(agents),
+        "registry_backend": backend,
+        "registry_warning": (
+            "a DSN is configured but the registry is using a local file; "
+            "agents will be lost on restart"
+            if dsn_set and backend != "postgresql" else None
+        ),
     }
 
 @app.get("/agents/list")

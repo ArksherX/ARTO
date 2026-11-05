@@ -5,6 +5,7 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime, timezone
 from pathlib import Path
 
+from tessera.registry_store import build_store
 from tessera.agent_keys import (
     generate_keypair,
     key_id_from_public,
@@ -38,13 +39,28 @@ class AgentIdentity:
     allowed_roles: List[str] = field(default_factory=list)
 
 class TesseraRegistry:
-    def __init__(self, registry_path: str = "data/tessera_registry.json"):
+    def __init__(self, registry_path: str = "data/tessera_registry.json", store=None):
         self.registry_path = registry_path
         self.agents: Dict[str, AgentIdentity] = {}
         os.makedirs(os.path.dirname(self.registry_path), exist_ok=True)
         self.root_key_path = Path(os.getenv("TESSERA_ROOT_KEY_PATH", "data/tessera_root_key.json"))
         self.root_key = load_or_create_root_key(self.root_key_path)
+        # Where agents live is separate from what the registry does with them.
+        # Defaults to the JSON file; TESSERA_DB_DSN selects PostgreSQL so the
+        # registry survives a container restart. Key handling below is untouched.
+        self.store = store or build_store(
+            registry_path=self.registry_path,
+            tenant_enabled_fn=self._tenant_storage_enabled,
+            tenant_paths_fn=self._iter_tenant_registry_paths,
+            tenant_path_fn=self._tenant_registry_path,
+            default_entries_fn=self._default_entries,
+        )
         self._load_registry()
+
+    @property
+    def storage_backend(self) -> str:
+        """The backend actually in use, for /health and the startup banner."""
+        return getattr(self.store, "backend", "unknown")
 
     def _tenant_storage_enabled(self) -> bool:
         return os.getenv("TESSERA_TENANT_SCOPED_REGISTRY", "false").lower() in ("1", "true", "yes")
@@ -77,24 +93,10 @@ class TesseraRegistry:
 
     def _load_registry(self):
         self.agents.clear()
-        tenant_paths = self._iter_tenant_registry_paths() if self._tenant_storage_enabled() else []
-        if tenant_paths:
-            for path in tenant_paths:
-                with open(path, 'r') as f:
-                    data = json.load(f)
-                for agent_id, config in data.items():
-                    valid_fields = {k: v for k, v in config.items() if k in AgentIdentity.__annotations__}
-                    self.agents[agent_id] = AgentIdentity(**valid_fields)
-        else:
-            if self._tenant_storage_enabled():
-                return
-            if not os.path.exists(self.registry_path):
-                self._create_default_registry()
-            with open(self.registry_path, 'r') as f:
-                data = json.load(f)
-            for agent_id, config in data.items():
-                valid_fields = {k: v for k, v in config.items() if k in AgentIdentity.__annotations__}
-                self.agents[agent_id] = AgentIdentity(**valid_fields)
+        data = self.store.load()
+        for agent_id, config in data.items():
+            valid_fields = {k: v for k, v in config.items() if k in AgentIdentity.__annotations__}
+            self.agents[agent_id] = AgentIdentity(**valid_fields)
         # Ensure keys exist for all loaded agents
         mutated = False
         for agent in self.agents.values():
@@ -106,8 +108,10 @@ class TesseraRegistry:
         if mutated:
             self._save_registry()
 
-    def _create_default_registry(self):
-        default_agents = {
+    @staticmethod
+    def _default_entries() -> Dict[str, Any]:
+        """Seed used when the store is empty, whichever backend is in use."""
+        return {
             "agent_financial_bot_01": {
                 "agent_id": "agent_financial_bot_01",
                 "owner": "Finance_Dept",
@@ -119,8 +123,6 @@ class TesseraRegistry:
                 "trust_dependencies": []
             }
         }
-        with open(self.registry_path, 'w') as f:
-            json.dump(default_agents, f, indent=4)
 
     def get_agent(self, agent_id: str) -> Optional[AgentIdentity]:
         return self.agents.get(agent_id)
@@ -161,20 +163,8 @@ class TesseraRegistry:
                 entry["last_updated"] = agent.last_updated
             return entry
 
-        if self._tenant_storage_enabled():
-            grouped: Dict[str, Dict[str, Any]] = {}
-            for agent_id, agent in self.agents.items():
-                grouped.setdefault(agent.tenant_id or "default", {})[agent_id] = _entry_for(agent)
-            for tenant_id, data in grouped.items():
-                path = self._tenant_registry_path(tenant_id)
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with open(path, 'w') as f:
-                    json.dump(data, f, indent=4)
-            return
-
-        data = {agent_id: _entry_for(agent) for agent_id, agent in self.agents.items()}
-        with open(self.registry_path, 'w') as f:
-            json.dump(data, f, indent=4)
+        self.store.save({agent_id: _entry_for(agent)
+                         for agent_id, agent in self.agents.items()})
 
     def register_agent(
         self,
