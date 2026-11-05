@@ -702,6 +702,40 @@ def _approval_store_path() -> FSPath:
     return BASE_DIR / "data" / "approvals.json"
 
 
+_DOC_STORE = None
+_GLOBAL_DOC_PATHS = {
+    "api_keys.json": _api_key_store_path,
+    "approvals.json": _approval_store_path,
+    "scan_results.json": _scan_store_path,
+    "skill_assessments.json": _skill_assessment_store_path,
+    "soc_agents.json": _agent_store_path,
+}
+
+
+def _doc_store():
+    """
+    Backing store for the JSON document stores below.
+
+    Files by default, PostgreSQL when VERITYFLUX_DB_DSN is set, so these
+    survive a container restart instead of vanishing with the filesystem.
+    """
+    global _DOC_STORE
+    if _DOC_STORE is None:
+        from core.doc_store import build_doc_store
+        _DOC_STORE = build_doc_store(
+            global_path_fn=lambda name: _GLOBAL_DOC_PATHS[name](),
+            tenant_path_fn=_tenant_store_path,
+            iter_tenant_paths_fn=_iter_tenant_store_paths,
+            json_default=_json_default,
+        )
+    return _DOC_STORE
+
+
+def doc_store_backend() -> str:
+    """The backend actually in use, for /health."""
+    return getattr(_doc_store(), "backend", "unknown")
+
+
 def _load_scan_store() -> None:
     def _merge_scan_rows(rows: Dict[str, Any]) -> None:
         for scan_id, row in rows.items():
@@ -884,31 +918,28 @@ def _load_api_key_store() -> None:
     API_KEY_STORE.clear()
     loaded = 0
     if _tenant_sharded_store_enabled("VERITYFLUX_API_KEY_STORE_PATH"):
-        for path in _iter_tenant_store_paths("api_keys.json"):
+        for org_id, payload in _doc_store().iter_all("api_keys.json"):
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    payload = json.load(f)
-                rows = payload.get("api_keys", {})
+                rows = (payload or {}).get("api_keys", {})
                 if isinstance(rows, dict):
                     _merge_key_rows(rows)
                     loaded += len(rows)
             except Exception as exc:
-                logger.warning("Failed to load tenant API key store %s: %s", path, exc)
+                logger.warning("Failed to load tenant API key store %s: %s", org_id, exc)
     if loaded:
         logger.info("Loaded %d API keys from tenant-scoped stores", len(API_KEY_STORE))
         return
 
-    path = _api_key_store_path()
-    if not path.exists():
-        return
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+        payload = _doc_store().read(None, "api_keys.json")
+        if not payload:
+            return
         rows = payload.get("api_keys", {})
         if not isinstance(rows, dict):
             return
         _merge_key_rows(rows)
-        logger.info("Loaded %d API keys from disk", len(API_KEY_STORE))
+        logger.info("Loaded %d API keys from the %s store",
+                    len(API_KEY_STORE), doc_store_backend())
     except Exception as exc:
         logger.warning("Failed to load API key store: %s", exc)
 
@@ -920,21 +951,13 @@ def _save_api_key_store() -> None:
             grouped.setdefault(_organization_id_from_record(row), {})[key_id] = row
         try:
             for org_id, rows in grouped.items():
-                path = _tenant_store_path(org_id, "api_keys.json")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                if not _path_within_repo(path):
-                    raise ValueError("Tenant API key store path must be within repo")
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump({"api_keys": rows}, f, indent=2, default=_json_default)
+                _doc_store().write(org_id, "api_keys.json", {"api_keys": rows})
             return
         except Exception as exc:
             logger.warning("Failed to save tenant-scoped API key store: %s", exc)
 
-    path = _api_key_store_path()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"api_keys": API_KEY_STORE}, f, indent=2, default=_json_default)
+        _doc_store().write(None, "api_keys.json", {"api_keys": API_KEY_STORE})
     except Exception as exc:
         logger.warning("Failed to save API key store: %s", exc)
 
@@ -943,11 +966,9 @@ def _load_approval_store() -> None:
     APPROVAL_STORE.clear()
     loaded = 0
     if _tenant_sharded_store_enabled("VERITYFLUX_APPROVAL_STORE_PATH"):
-        for path in _iter_tenant_store_paths("approvals.json"):
+        for org_id, payload in _doc_store().iter_all("approvals.json"):
             try:
-                with open(path, "r", encoding="utf-8") as f:
-                    payload = json.load(f)
-                rows = payload.get("approvals", {})
+                rows = (payload or {}).get("approvals", {})
                 if not isinstance(rows, dict):
                     continue
                 for request_id, row in rows.items():
@@ -955,24 +976,23 @@ def _load_approval_store() -> None:
                         APPROVAL_STORE[str(request_id)] = dict(row)
                         loaded += 1
             except Exception as exc:
-                logger.warning("Failed to load tenant approval store %s: %s", path, exc)
+                logger.warning("Failed to load tenant approval store %s: %s", org_id, exc)
     if loaded:
         logger.info("Loaded %d approvals from tenant-scoped stores", len(APPROVAL_STORE))
         return
 
-    path = _approval_store_path()
-    if not path.exists():
-        return
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+        payload = _doc_store().read(None, "approvals.json")
+        if not payload:
+            return
         rows = payload.get("approvals", {})
         if not isinstance(rows, dict):
             return
         for request_id, row in rows.items():
             if isinstance(row, dict):
                 APPROVAL_STORE[str(request_id)] = dict(row)
-        logger.info("Loaded %d approvals from disk", len(APPROVAL_STORE))
+        logger.info("Loaded %d approvals from the %s store",
+                    len(APPROVAL_STORE), doc_store_backend())
     except Exception as exc:
         logger.warning("Failed to load approval store: %s", exc)
 
@@ -984,21 +1004,13 @@ def _save_approval_store() -> None:
             grouped.setdefault(_organization_id_from_record(row), {})[request_id] = row
         try:
             for org_id, rows in grouped.items():
-                path = _tenant_store_path(org_id, "approvals.json")
-                path.parent.mkdir(parents=True, exist_ok=True)
-                if not _path_within_repo(path):
-                    raise ValueError("Tenant approval store path must be within repo")
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump({"approvals": rows}, f, indent=2, default=_json_default)
+                _doc_store().write(org_id, "approvals.json", {"approvals": rows})
             return
         except Exception as exc:
             logger.warning("Failed to save tenant-scoped approval store: %s", exc)
 
-    path = _approval_store_path()
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"approvals": APPROVAL_STORE}, f, indent=2, default=_json_default)
+        _doc_store().write(None, "approvals.json", {"approvals": APPROVAL_STORE})
     except Exception as exc:
         logger.warning("Failed to save approval store: %s", exc)
 
@@ -2483,6 +2495,22 @@ async def root():
     }
 
 
+def _doc_store_health() -> str:
+    """
+    "healthy" only when persistence will actually outlive the container.
+
+    With no DSN configured this is a deliberate local setup, so files are
+    fine. With a DSN set but files in use, something is wrong and the check
+    must say so rather than reporting green.
+    """
+    backend = doc_store_backend()
+    if backend == "postgresql":
+        return "healthy"
+    if os.getenv("VERITYFLUX_DB_DSN", "").strip():
+        return "degraded: DSN configured but documents are on local disk"
+    return "healthy (local file store, no DSN configured)"
+
+
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health check endpoint"""
@@ -2491,12 +2519,17 @@ async def health_check():
         "timestamp": datetime.now(UTC).isoformat(),
         "services": {
             "api": "healthy",
-            "database": "healthy",
+            # Was hardcoded "healthy", which told you nothing. Report the
+            # backend the document stores are really using: a file store on a
+            # container filesystem loses issued API keys and pending approvals
+            # on restart, so that must not read as healthy.
+            "database": _doc_store_health(),
             "vulndb": "healthy",
             "scanner": "healthy",
             "soc": "healthy",
             "hitl": "healthy",
         },
+        "store_backend": doc_store_backend(),
         # What is actually protecting traffic right now - not just "is it up".
         "detectors": _detector_status(),
     }
