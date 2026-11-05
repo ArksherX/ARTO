@@ -39,6 +39,10 @@ from core.hsm_client import get_hsm_from_env
 
 logger = logging.getLogger("vestigia.postgres_ledger")
 
+# Arbitrary but fixed key for the transaction-level advisory lock that
+# serialises ledger appends. Every writer must use the same value.
+_APPEND_LOCK_KEY = 0x5645_5354  # "VEST"
+
 
 class PostgresLedger:
     """
@@ -110,6 +114,20 @@ class PostgresLedger:
                 provider = os.getenv("VESTIGIA_BLOCKCHAIN_PROVIDER", "file")
                 self._blockchain_anchor = BlockchainAnchor(provider=provider)
         except Exception as exc:
+            # A silent fall back to the JSON ledger is how a cloud deployment
+            # ends up writing evidence to an ephemeral container disk while
+            # every health check stays green. In production that must be a
+            # hard failure; the fallback stays available for local development.
+            if os.getenv("VESTIGIA_LEDGER_STRICT", "false").lower() == "true":
+                logger.error(
+                    "PostgreSQL unavailable (%s) and VESTIGIA_LEDGER_STRICT is set: %s",
+                    dsn, exc,
+                )
+                raise RuntimeError(
+                    "Vestigia ledger requires PostgreSQL but it is unavailable: "
+                    f"{exc}. Refusing to fall back to the JSON ledger because "
+                    "VESTIGIA_LEDGER_STRICT=true."
+                ) from exc
             logger.warning(
                 "PostgreSQL unavailable (%s) -- falling back to JSON ledger: %s",
                 dsn,
@@ -235,8 +253,21 @@ class PostgresLedger:
         try:
             conn.autocommit = False
             with conn.cursor() as cur:
-                # Fetch the most recent integrity_hash (row-level lock on the
-                # latest entry to serialise concurrent appends).
+                # Serialise appends across every writer, including separate
+                # processes and separate Cloud Run instances.
+                #
+                # SELECT ... FOR UPDATE on the latest row is NOT sufficient on
+                # its own: under READ COMMITTED a statement that blocks on the
+                # lock does not afterwards see a row the other transaction
+                # INSERTED, so both writers can read the same parent hash and
+                # fork the chain. Each fork then verifies as internally valid,
+                # so nothing surfaces it.
+                #
+                # The advisory lock is held for the life of the transaction and
+                # released automatically on commit or rollback. The UNIQUE
+                # constraint on previous_hash (phase7 migration) is the second,
+                # independent guard.
+                cur.execute("SELECT pg_advisory_xact_lock(%s)", (_APPEND_LOCK_KEY,))
                 cur.execute(
                     """
                     SELECT integrity_hash
@@ -350,6 +381,41 @@ class PostgresLedger:
     # ------------------------------------------------------------------
     # Integrity verification
     # ------------------------------------------------------------------
+
+    def _load_ledger(self) -> list:
+        """
+        Return every entry as a list of dicts, oldest first.
+
+        Present because callers written against the JSON ledger use it
+        directly (api_server.py does, in two places). Reads the whole table,
+        so it is for export and verification paths, not request handling.
+        """
+        if self._fallback is not None:
+            return self._fallback._load_ledger()
+
+        conn = self._get_conn()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT event_id, timestamp, tenant_id, actor_id, action_type,
+                           status, evidence, integrity_hash, previous_hash,
+                           event_sequence, trace_id, span_id
+                    FROM   vestigia_events
+                    ORDER  BY event_sequence ASC
+                    """
+                )
+                cols = [d[0] for d in cur.description]
+                out = []
+                for row in cur.fetchall():
+                    rec = dict(zip(cols, row))
+                    ts = rec.get("timestamp")
+                    if hasattr(ts, "isoformat"):
+                        rec["timestamp"] = ts.isoformat()
+                    out.append(rec)
+                return out
+        finally:
+            self._put_conn(conn)
 
     def verify_integrity(self) -> tuple:
         """

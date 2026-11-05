@@ -36,6 +36,7 @@ from pydantic import BaseModel, Field
 sys.path.insert(0, str(Path(__file__).parent))
 
 from core.ledger_engine import VestigiaLedger, StructuredEvidence
+from core.postgres_ledger import PostgresLedger
 from validator import VestigiaValidator
 from core.access_audit import AccessAuditLogger
 from core.blockchain_anchor import BlockchainAnchor
@@ -382,16 +383,46 @@ _last_integrity_check_ts: float = 0.0
 _last_integrity_ok: bool = True
 
 
-def _get_ledger() -> VestigiaLedger:
-    """Return the global ledger instance, lazily initialised."""
+def _get_ledger():
+    """
+    Return the global ledger instance, lazily initialised.
+
+    Picks the backend from VESTIGIA_DB_DSN. Until this read DB_DSN, setting a
+    DSN changed the startup banner and the health check but not where evidence
+    went: it still landed in a JSON file. On a stateless runtime that loses the
+    ledger on restart and forks it across instances, while every signal stays
+    green.
+    """
     global _ledger
     if _ledger is None:
-        _ledger = VestigiaLedger(
-            ledger_path=LEDGER_PATH,
-            enable_merkle_witness=True,
-            enable_external_anchor=False,
-        )
+        if DB_DSN:
+            _ledger = PostgresLedger(
+                dsn=DB_DSN,
+                fallback_ledger_path=LEDGER_PATH,
+            )
+            if _ledger.is_postgres:
+                logger.info("Ledger backend: PostgreSQL")
+            else:
+                logger.warning(
+                    "Ledger backend: JSON at %s - a DSN was set but PostgreSQL "
+                    "was unreachable. Evidence is on local disk. Set "
+                    "VESTIGIA_LEDGER_STRICT=true to make this fail instead.",
+                    LEDGER_PATH,
+                )
+        else:
+            _ledger = VestigiaLedger(
+                ledger_path=LEDGER_PATH,
+                enable_merkle_witness=True,
+                enable_external_anchor=False,
+            )
+            logger.info("Ledger backend: JSON at %s", LEDGER_PATH)
     return _ledger
+
+
+def ledger_backend_name() -> str:
+    """The backend actually in use, for /health and the startup banner."""
+    led = _get_ledger()
+    return "postgresql" if getattr(led, "is_postgres", False) else "json-file"
 
 
 def _get_blockchain_anchor() -> BlockchainAnchor:
@@ -650,10 +681,16 @@ async def on_startup():
     logger.info("Ledger loaded from %s", LEDGER_PATH)
 
     # Backend info
-    if DB_DSN:
-        logger.info("PostgreSQL backend configured (DSN set)")
+    backend = ledger_backend_name()
+    if backend == "postgresql":
+        logger.info("Ledger backend in use: PostgreSQL")
     else:
-        logger.info("Using JSON file backend at %s", LEDGER_PATH)
+        logger.info("Ledger backend in use: JSON file at %s", LEDGER_PATH)
+        if DB_DSN:
+            logger.warning(
+                "A DSN is configured but the ledger is NOT using it. On a "
+                "stateless runtime this loses evidence on restart."
+            )
 
     # Initial integrity check
     is_valid, broken_idx = ledger.verify_integrity()
@@ -1084,6 +1121,20 @@ async def health_check():
 )
 async def status_page():
     health = collect_health(LEDGER_PATH, DB_DSN, REDIS_URL)
+    # A reachable database is not the same thing as a ledger that writes to it.
+    # Report the backend actually in use so a green check cannot mean a JSON
+    # ledger on an ephemeral disk.
+    backend = ledger_backend_name()
+    health["components"].append({
+        "component": "ledger_backend",
+        "status": "ok" if backend == "postgresql" or not DB_DSN else "fail",
+        "backend": backend,
+        "detail": (
+            "evidence is persisted to PostgreSQL" if backend == "postgresql"
+            else "evidence is on the local filesystem"
+            + (" DESPITE a DSN being configured" if DB_DSN else "")
+        ),
+    })
     overall = "ok"
     for comp in health["components"]:
         if comp["status"] == "fail":
