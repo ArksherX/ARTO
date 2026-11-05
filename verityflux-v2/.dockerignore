@@ -1,0 +1,32 @@
+# State and output. These must never enter an image: data/ holds the JSON
+# stores that PostgreSQL now replaces, and baking a snapshot of them in would
+# resurrect stale API keys and approvals on every deploy.
+data/
+logs/
+flight_logs/
+audit_exports/
+metrics/
+shared_state/
+hitl_queue/
+
+# Secrets. Belongs in Secret Manager, supplied at runtime.
+.env
+.env.*
+*.pem
+*.key
+
+# Build noise
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+
+# Not needed at runtime
+tests/
+docs/
+deploy/
+defcon_singapore_2026/
+redteam/

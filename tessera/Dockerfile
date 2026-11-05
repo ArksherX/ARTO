@@ -3,10 +3,14 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     postgresql-client \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+# curl is required by the HEALTHCHECK below. python:3.11-slim does not ship
+# it, so without this the health check could only ever fail and the container
+# was permanently unhealthy.
 
 # Copy requirements
 COPY requirements.txt .
