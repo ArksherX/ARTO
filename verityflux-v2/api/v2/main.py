@@ -31,6 +31,8 @@ from pathlib import Path as FSPath
 from urllib.parse import urlparse
 
 # FastAPI
+import trace_context as _tc
+
 from fastapi import (
     FastAPI, HTTPException, Depends, Security, Query, Path, Body,
     BackgroundTasks, WebSocket, WebSocketDisconnect, Request, Response
@@ -1160,10 +1162,29 @@ def _normalize_correlation(
     trace_id: Optional[str] = None,
     correlation_id: Optional[str] = None,
 ) -> tuple[str, str]:
-    sid = session_id or correlation_id
+    """
+    Resolve the correlation pair for a contract event.
+
+    Order: what the caller passed, then the ambient trace context adopted from
+    the inbound request, then a marked placeholder.
+
+    It used to fall back to f"{agent_id}:{event_type}", which gave every
+    separate episode by one agent the same session id and merged unrelated
+    incidents into a single coherent looking timeline. For the multi-turn
+    case this is the whole point: one session, many traces. trace_id is no
+    longer defaulted to the session.
+    """
+    ctx_session, ctx_trace = (None, None)
+    if _tc.enabled():
+        ctx_session, ctx_trace = _tc.correlation(agent_id=agent_id)
+
+    sid = session_id or correlation_id or ctx_session
     if not sid:
-        sid = f"{agent_id or 'unknown'}:{event_type}"
-    tid = trace_id or correlation_id or sid
+        sid = f"unlinked:{agent_id or 'unknown'}:{uuid.uuid4()}"
+
+    tid = trace_id or ctx_trace or correlation_id
+    if not tid:
+        tid = _tc.new_trace_id()
     return sid, tid
 
 
@@ -1205,6 +1226,10 @@ def _send_to_vestigia(event: dict) -> None:
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    # Carry the trace onward so Vestigia files this event under the same trace
+    # as the request that produced it, with the session in baggage.
+    if _tc.enabled():
+        headers.update(_tc.headers())
 
     delivered = False
     try:
@@ -2260,6 +2285,20 @@ def _rate_limit_endpoint_hint(path: str):
     if "/approval" in path:
         return "approval"
     return None
+
+
+# -- W3C trace context ------------------------------------------------------
+# Registered before the rate limiter so every request, including one that is
+# refused, still carries a trace.
+@app.middleware("http")
+async def _trace_context(request: Request, call_next):
+    if _tc.enabled():
+        _tc.adopt(dict(request.headers))
+    response = await call_next(request)
+    tp = _tc.traceparent()
+    if tp:
+        response.headers["traceparent"] = tp
+    return response
 
 
 @app.middleware("http")

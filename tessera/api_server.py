@@ -58,6 +58,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 print("🔐 Starting Tessera IAM API Server...")
 
+import uuid
+
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -138,10 +140,30 @@ def _normalize_correlation(
     trace_id: Optional[str] = None,
     correlation_id: Optional[str] = None,
 ) -> tuple[str, str]:
-    sid = session_id or correlation_id
+    """
+    Resolve the correlation pair for a contract event.
+
+    Order: what the caller passed, then the ambient trace context adopted from
+    the inbound request, then a marked placeholder.
+
+    It used to fall back to f"{agent_id}:{event_type}". That is not a missing
+    value but a wrong one -- every separate episode by the same agent received
+    the same session id, so unrelated incidents merged into one coherent
+    looking timeline. A session nobody established is now marked "unlinked:"
+    so it can never group, and trace_id is no longer defaulted to the session:
+    a trace is one operation, a session spans many.
+    """
+    ctx_session, ctx_trace = (None, None)
+    if _tc.enabled():
+        ctx_session, ctx_trace = _tc.correlation(agent_id=agent_id)
+
+    sid = session_id or correlation_id or ctx_session
     if not sid:
-        sid = f"{agent_id or 'unknown'}:{event_type}"
-    tid = trace_id or correlation_id or sid
+        sid = f"unlinked:{agent_id or 'unknown'}:{uuid.uuid4()}"
+
+    tid = trace_id or ctx_trace or correlation_id
+    if not tid:
+        tid = _tc.new_trace_id()
     return sid, tid
 
 
@@ -291,6 +313,10 @@ def _send_to_vestigia(event: dict) -> None:
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    # Carry the trace onward so Vestigia records this event under the same
+    # trace as the request that caused it, and the session rides in baggage.
+    if _tc.enabled():
+        headers.update(_tc.headers())
 
     try:
         req = urllib_request.Request(
@@ -523,6 +549,25 @@ except Exception as e:
     print(f"⚠️  VerityFlux bridge unavailable: {e}")
 
 print("✅ Components initialized")
+
+# -- W3C trace context ------------------------------------------------------
+# Vestigia already reads traceparent and persists trace_id; Tessera sent
+# neither, so there was nothing to correlate a session on. Adopt whatever the
+# caller supplied, mint one when they supplied nothing, and carry it onward.
+import trace_context as _tc
+
+
+@app.middleware("http")
+async def trace_context_middleware(request: Request, call_next):
+    if _tc.enabled():
+        _tc.adopt(dict(request.headers))
+    response = await call_next(request)
+    tp = _tc.traceparent()
+    if tp:
+        # Echo it so a caller can tie its own logs to this request.
+        response.headers["traceparent"] = tp
+    return response
+
 
 # CORS
 app.add_middleware(

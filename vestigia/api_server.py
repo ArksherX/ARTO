@@ -371,13 +371,20 @@ def _backfill_contract_correlation(contract_event: Dict[str, Any], fallback_acto
     req = contract_event.get("request") or {}
     agent_id = actor.get("agent_id") or fallback_actor or "unknown"
 
+    # Prefer the trace context adopted from the inbound request: if Tessera
+    # or VerityFlux propagated one, this event belongs to their trace and
+    # their session, not to anything synthesised here.
+    ctx_session, ctx_trace = (None, None)
+    if _tc.enabled():
+        ctx_session, ctx_trace = _tc.correlation(agent_id=agent_id)
+
     synthetic = []
-    session_id = req.get("session_id")
+    session_id = req.get("session_id") or ctx_session
     if not session_id:
         session_id = f"unlinked:{agent_id}:{uuid.uuid4()}"
         synthetic.append("session_id")
 
-    trace_id = req.get("trace_id")
+    trace_id = req.get("trace_id") or ctx_trace
     if not trace_id:
         trace_id = f"unlinked:{uuid.uuid4()}"
         synthetic.append("trace_id")
@@ -657,6 +664,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# -- W3C trace context ------------------------------------------------------
+# Vestigia already read traceparent here by hand. Going through the shared
+# module means it resolves the same way in all three services and makes the
+# adopted trace available to the ingest handler, so an event lands under the
+# trace of the request that produced it rather than one invented locally.
+import trace_context as _tc
+
+
+@app.middleware("http")
+async def trace_context_middleware(request: Request, call_next):
+    if _tc.enabled():
+        _tc.adopt(dict(request.headers))
+    response = await call_next(request)
+    tp = _tc.traceparent()
+    if tp:
+        response.headers["traceparent"] = tp
+    return response
+
 
 # -- Request-logging middleware ---------------------------------------------
 

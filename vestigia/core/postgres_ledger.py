@@ -107,6 +107,25 @@ class PostgresLedger:
                     cur.execute("SELECT 1")
             finally:
                 self._pool.putconn(conn)
+            # The ledger schema is not created here on purpose. It carries an
+            # append-only trigger, a hash-chain validator and a uniqueness
+            # constraint, so it belongs in a reviewed migration rather than
+            # being conjured at startup. Check it is present and say exactly
+            # what to run if it is not -- the bare UndefinedTable this used to
+            # raise on first request gave no clue.
+            conn2 = self._pool.getconn()
+            try:
+                with conn2.cursor() as c2:
+                    c2.execute("SELECT to_regclass('public.vestigia_events')")
+                    if c2.fetchone()[0] is None:
+                        raise RuntimeError(
+                            "PostgreSQL is reachable but the ledger schema is missing. "
+                            "Apply it first:\n"
+                            "  psql \"$VESTIGIA_DB_DSN\" -f vestigia/sql/schema.sql\n"
+                            "  psql \"$VESTIGIA_DB_DSN\" -f vestigia/sql/phase7-ledger-concurrency.sql"
+                        )
+            finally:
+                self._pool.putconn(conn2)
             logger.info("PostgreSQL connection pool established (%s)", dsn)
             hsm = get_hsm_from_env()
             self._witness = MerkleWitness(hsm_client=hsm)
