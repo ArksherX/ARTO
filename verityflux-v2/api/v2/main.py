@@ -1178,7 +1178,11 @@ def _normalize_correlation(
     if _tc.enabled():
         ctx_session, ctx_trace = _tc.correlation(agent_id=agent_id)
 
-    sid = session_id or correlation_id or ctx_session
+    # The trace-context session comes before correlation_id on purpose.
+    # /tokens/request passes correlation_id=jti, which is per-token, so taking
+    # it first made every turn of one conversation a separate "session" -- the
+    # opposite failure to the one this change fixes, and just as wrong.
+    sid = session_id or ctx_session or correlation_id
     if not sid:
         sid = f"unlinked:{agent_id or 'unknown'}:{uuid.uuid4()}"
 
